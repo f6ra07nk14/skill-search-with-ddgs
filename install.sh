@@ -10,6 +10,9 @@ SKILL_ROOT=""
 SKILL_NAME=""
 SERVER_NAME=""
 NON_INTERACTIVE=0
+RESOLVED_SKILL_ROOT=""
+RESOLVED_SKILL_PATH=""
+RESOLVED_VENV_PATH=""
 
 log_phase() {
   local phase="$1"
@@ -36,9 +39,9 @@ usage() {
   cat <<EOF
 Usage: $SCRIPT_NAME [options]
 
-Preflight-only installer entrypoint for the search-with-ddgs skill.
-This S01 scope resolves installer config and prerequisite checks only;
-it does not create directories, environments, or MCP config.
+Installer entrypoint for the search-with-ddgs skill.
+This S02 scope resolves installer config, runs prerequisite checks,
+creates the target skill directory, and provisions a local .venv.
 
 Options:
   --skill-root <path>      Skill install root (default: $DEFAULT_SKILL_ROOT)
@@ -54,6 +57,22 @@ trim() {
   value="${value#"${value%%[![:space:]]*}"}"
   value="${value%"${value##*[![:space:]]}"}"
   printf '%s' "$value"
+}
+
+expand_user_path() {
+  local raw_path="$1"
+
+  if [[ "$raw_path" == "~" ]]; then
+    printf '%s' "$HOME"
+    return
+  fi
+
+  if [[ "$raw_path" == ~/* ]]; then
+    printf '%s/%s' "$HOME" "${raw_path#~/}"
+    return
+  fi
+
+  printf '%s' "$raw_path"
 }
 
 is_interactive() {
@@ -308,12 +327,143 @@ ensure_uv() {
   fi
 }
 
+resolve_install_paths() {
+  local skill_root_resolved
+  local skill_path
+
+  skill_root_resolved="$(expand_user_path "$SKILL_ROOT")"
+  skill_root_resolved="$(trim "$skill_root_resolved")"
+
+  if [[ -z "$skill_root_resolved" ]]; then
+    fatal_phase "filesystem" "Resolved skill root is empty after normalization." "Provide a valid --skill-root value and rerun."
+  fi
+
+  if [[ -z "$SKILL_NAME" ]]; then
+    fatal_phase "filesystem" "Resolved skill name is empty after normalization." "Provide a valid --skill-name value and rerun."
+  fi
+
+  skill_path="$skill_root_resolved/$SKILL_NAME"
+
+  if [[ "$skill_path" == "/" || "$skill_path" == "//" ]]; then
+    fatal_phase "filesystem" "Resolved skill path is invalid: '$skill_path'." "Use a non-root --skill-root and a non-empty --skill-name."
+  fi
+
+  if [[ -e "$skill_path" ]]; then
+    fatal_phase "filesystem" "Target skill directory already exists: $skill_path" "Choose a different --skill-root/--skill-name or remove the existing directory before rerunning."
+  fi
+
+  RESOLVED_SKILL_ROOT="$skill_root_resolved"
+  RESOLVED_SKILL_PATH="$skill_path"
+  RESOLVED_VENV_PATH="$RESOLVED_SKILL_PATH/.venv"
+
+  log_phase "filesystem" "Resolved install path: $RESOLVED_SKILL_PATH"
+}
+
+validate_destination_paths() {
+  local root_parent
+
+  if [[ -d "$RESOLVED_SKILL_ROOT" ]]; then
+    if [[ ! -w "$RESOLVED_SKILL_ROOT" ]]; then
+      fatal_phase "filesystem" "Skill root is not writable: $RESOLVED_SKILL_ROOT" "Grant write permission or choose another --skill-root."
+    fi
+    return
+  fi
+
+  if [[ -e "$RESOLVED_SKILL_ROOT" && ! -d "$RESOLVED_SKILL_ROOT" ]]; then
+    fatal_phase "filesystem" "Skill root exists but is not a directory: $RESOLVED_SKILL_ROOT" "Choose a directory path for --skill-root."
+  fi
+
+  root_parent="$(dirname "$RESOLVED_SKILL_ROOT")"
+
+  if [[ ! -d "$root_parent" ]]; then
+    fatal_phase "filesystem" "Parent directory for skill root does not exist: $root_parent" "Create the parent directory or choose another --skill-root."
+  fi
+
+  if [[ ! -w "$root_parent" ]]; then
+    fatal_phase "filesystem" "Parent directory is not writable: $root_parent" "Grant write permission on the parent or choose another --skill-root."
+  fi
+}
+
+create_skill_directory() {
+  local mkdir_status
+
+  if [[ -z "$RESOLVED_SKILL_PATH" ]]; then
+    fatal_phase "filesystem" "Resolved skill path is empty; refusing filesystem mutation." "Rerun with a valid configuration."
+  fi
+
+  if [[ ! -d "$RESOLVED_SKILL_ROOT" ]]; then
+    log_phase "filesystem" "Creating skill root: $RESOLVED_SKILL_ROOT"
+    set +e
+    mkdir -p "$RESOLVED_SKILL_ROOT"
+    mkdir_status=$?
+    set -e
+
+    if [[ $mkdir_status -ne 0 ]]; then
+      fatal_phase "filesystem" "Failed to create skill root '$RESOLVED_SKILL_ROOT' (exit $mkdir_status)." "Check path permissions and retry."
+    fi
+  fi
+
+  log_phase "filesystem" "Creating skill directory: $RESOLVED_SKILL_PATH"
+  set +e
+  mkdir "$RESOLVED_SKILL_PATH"
+  mkdir_status=$?
+  set -e
+
+  if [[ $mkdir_status -ne 0 ]]; then
+    fatal_phase "filesystem" "Failed to create skill directory '$RESOLVED_SKILL_PATH' (exit $mkdir_status)." "Check path permissions/conflicts and retry."
+  fi
+}
+
+run_uv_venv() {
+  local venv_path="$1"
+
+  if [[ -n "${INSTALLER_UV_VENV_CMD:-}" ]]; then
+    INSTALLER_VENV_PATH="$venv_path" bash -c "$INSTALLER_UV_VENV_CMD"
+  else
+    uv venv "$venv_path"
+  fi
+}
+
+create_local_venv() {
+  local venv_status
+
+  if [[ -z "$RESOLVED_VENV_PATH" ]]; then
+    fatal_phase "venv" "Resolved venv path is empty." "Check --skill-root/--skill-name values and rerun."
+  fi
+
+  log_phase "venv" "Creating local environment at $RESOLVED_VENV_PATH"
+
+  set +e
+  run_uv_venv "$RESOLVED_VENV_PATH"
+  venv_status=$?
+  set -e
+
+  if [[ $venv_status -ne 0 ]]; then
+    fatal_phase "venv" "uv venv failed for '$RESOLVED_VENV_PATH' with exit code $venv_status." "Inspect uv output, then rerun after resolving the failure."
+  fi
+
+  if [[ ! -d "$RESOLVED_VENV_PATH" ]]; then
+    fatal_phase "venv" "uv venv reported success but expected path is missing: $RESOLVED_VENV_PATH" "Inspect uv output and verify the target path before retrying."
+  fi
+
+  log_phase "venv" "Local environment ready: $RESOLVED_VENV_PATH"
+}
+
+provision_filesystem_and_venv() {
+  log_phase "filesystem" "Validating destination paths."
+  resolve_install_paths
+  validate_destination_paths
+  create_skill_directory
+  create_local_venv
+}
+
 main() {
   parse_args "$@"
   resolve_config
   check_platform
   ensure_uv
-  log_phase "preflight" "Preflight checks passed. No filesystem mutation was performed."
+  provision_filesystem_and_venv
+  log_phase "install" "S02 filesystem and venv provisioning complete. Package installation phase has not run yet."
 }
 
 main "$@"
