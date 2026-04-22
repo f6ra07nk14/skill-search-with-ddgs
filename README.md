@@ -8,7 +8,7 @@ This repository now includes a shell installer entrypoint:
 
 - `install.sh`
 
-Current S02 scope is **preflight + local environment provisioning**: it resolves installer config values, checks platform + `uv`, creates `<skill_root>/<skill_name>/.venv`, installs `ddgs[api,mcp]` into that local environment, and verifies `<skill_root>/<skill_name>/.venv/bin/ddgs` before reporting success.
+Current S03 scope is **preflight + local environment provisioning + rendered skill artifact**: it resolves installer config values, checks platform + `uv`, creates `<skill_root>/<skill_name>/.venv`, installs `ddgs[api,mcp]` into that local environment, verifies `<skill_root>/<skill_name>/.venv/bin/ddgs`, and then renders `<skill_root>/<skill_name>/SKILL.md` from the repo-local `SKILL.md.jinja` template before reporting success.
 
 ### Preflight requirements and behavior
 
@@ -20,6 +20,15 @@ Current S02 scope is **preflight + local environment provisioning**: it resolves
 - In interactive mode, the installer can run a guided `uv` install after explicit confirmation (`y`/`yes`), then immediately re-check `uv`.
 - In non-interactive mode (`--non-interactive`), missing `uv` is always a fatal preflight error.
 - Any unsupported platform, failed install attempt, or failed post-install re-check exits with a phase-prefixed error and a next-step message.
+
+### Rendered `SKILL.md` contract
+
+- Source template: repo-local `SKILL.md.jinja`.
+- Destination artifact: `<skill_root>/<skill_name>/SKILL.md`.
+- Injected values include:
+  - selected `--server-name`
+  - concrete local executable path `<skill_root>/<skill_name>/.venv/bin/ddgs`
+- Render failures are phase-scoped (`[phase:template-render]`) and fail fast before install completion output.
 
 ### CLI contract
 
@@ -36,6 +45,6 @@ Defaults:
 Verification harness:
 
 - `bash -n install.sh`
-- `bash tests/test_install_preflight.sh`
-- `bash tests/test_install_environment.sh`
+- `bash tests/test_install_preflight.sh` (preflight guardrails remain side-effect free)
+- `bash tests/test_install_environment.sh` (proves successful `SKILL.md` rendering + template-render failure behavior)
 

@@ -23,6 +23,13 @@ assert_contains() {
   [[ "$haystack" == *"$needle"* ]] || fail "$context (missing: $needle)"
 }
 
+assert_file_contains() {
+  local file_path="$1"
+  local needle="$2"
+  local context="$3"
+  grep -Fq -- "$needle" "$file_path" || fail "$context (missing: $needle)"
+}
+
 make_fake_uv_bin() {
   local dir
   dir="$(mktemp -d)"
@@ -41,21 +48,23 @@ run_installer_with_hooks() {
   local skill_name="$4"
   local venv_hook="$5"
   local pip_hook="$6"
+  shift 6
 
   env -i \
     HOME="$home_dir" \
     PATH="$fakebin:/usr/bin:/bin" \
     INSTALLER_UV_VENV_CMD="$venv_hook" \
     INSTALLER_UV_PIP_INSTALL_CMD="$pip_hook" \
-    bash "$INSTALLER" --non-interactive --skill-root "$skill_root" --skill-name "$skill_name"
+    bash "$INSTALLER" --non-interactive --skill-root "$skill_root" --skill-name "$skill_name" "$@"
 }
 
-# 1) fresh install creates <root>/<skill_name>/.venv/bin/ddgs and logs package/executable phases
+# 1) fresh install creates executable + rendered SKILL.md with injected values
 {
   fakebin="$(make_fake_uv_bin)"
   home_dir="$(mktemp -d)"
   skill_root="$(mktemp -d)/skills-root"
   skill_name="fresh-skill"
+  server_name="fresh-ddgs-server"
 
   output="$(run_installer_with_hooks \
     "$fakebin" \
@@ -63,14 +72,20 @@ run_installer_with_hooks() {
     "$skill_root" \
     "$skill_name" \
     'mkdir -p "$INSTALLER_VENV_PATH/bin"' \
-    'mkdir -p "$INSTALLER_VENV_PATH/bin" && : > "$INSTALLER_VENV_PATH/bin/ddgs" && chmod +x "$INSTALLER_VENV_PATH/bin/ddgs"' 2>&1)"
+    'mkdir -p "$INSTALLER_VENV_PATH/bin" && : > "$INSTALLER_VENV_PATH/bin/ddgs" && chmod +x "$INSTALLER_VENV_PATH/bin/ddgs"' \
+    --server-name "$server_name" 2>&1)"
 
   ddgs_path="$skill_root/$skill_name/.venv/bin/ddgs"
+  skill_doc="$skill_root/$skill_name/SKILL.md"
   [[ -x "$ddgs_path" ]] || fail "fresh install should create executable: $ddgs_path"
+  [[ -s "$skill_doc" ]] || fail "fresh install should create non-empty SKILL.md: $skill_doc"
+  assert_file_contains "$skill_doc" "$server_name" "rendered SKILL.md should include selected server name"
+  assert_file_contains "$skill_doc" "$ddgs_path" "rendered SKILL.md should include concrete ddgs executable path"
   assert_contains "$output" "[phase:package-install] Installing ddgs[api,mcp]" "fresh install package phase"
   assert_contains "$output" "[phase:executable-verification] Verified executable:" "fresh install executable verification"
+  assert_contains "$output" "[phase:template-render] Rendered skill document:" "fresh install template render"
   assert_contains "$output" "[phase:install] S02 install complete. Local ddgs environment is ready." "fresh install completion"
-  pass "fresh install creates local ddgs executable"
+  pass "fresh install creates rendered SKILL.md with injected values"
 }
 
 # 2) second run with same target fails conflict without overwrite
@@ -177,6 +192,64 @@ run_installer_with_hooks() {
   [[ $status -ne 0 ]] || fail "non-executable ddgs should exit non-zero"
   assert_contains "$output" "[phase:executable-verification] ERROR: ddgs path is not executable:" "non-executable ddgs phase error"
   pass "non-executable ddgs path is rejected"
+}
+
+# 6) missing template fails in template-render phase without creating partial SKILL.md
+{
+  fakebin="$(make_fake_uv_bin)"
+  home_dir="$(mktemp -d)"
+  skill_root="$(mktemp -d)/skills-root"
+  skill_name="missing-template"
+  backup_template="$ROOT_DIR/SKILL.md.jinja.bak-test"
+
+  mv "$ROOT_DIR/SKILL.md.jinja" "$backup_template"
+
+  set +e
+  output="$(run_installer_with_hooks \
+    "$fakebin" \
+    "$home_dir" \
+    "$skill_root" \
+    "$skill_name" \
+    'mkdir -p "$INSTALLER_VENV_PATH/bin"' \
+    'mkdir -p "$INSTALLER_VENV_PATH/bin" && : > "$INSTALLER_VENV_PATH/bin/ddgs" && chmod +x "$INSTALLER_VENV_PATH/bin/ddgs"' 2>&1)"
+  status=$?
+  set -e
+
+  mv "$backup_template" "$ROOT_DIR/SKILL.md.jinja"
+
+  [[ $status -ne 0 ]] || fail "missing template should exit non-zero"
+  assert_contains "$output" "[phase:template-render] ERROR: Template not found:" "missing template phase error"
+  assert_contains "$output" "[phase:template-render] NEXT: Restore SKILL.md.jinja in the installer repository and rerun." "missing template next action"
+  [[ ! -e "$skill_root/$skill_name/SKILL.md" ]] || fail "missing template should not leave destination SKILL.md"
+  pass "missing template fails cleanly without destination artifact"
+}
+
+# 7) unreadable template fails in template-render phase without creating partial SKILL.md
+{
+  fakebin="$(make_fake_uv_bin)"
+  home_dir="$(mktemp -d)"
+  skill_root="$(mktemp -d)/skills-root"
+  skill_name="unreadable-template"
+  chmod 000 "$ROOT_DIR/SKILL.md.jinja"
+
+  set +e
+  output="$(run_installer_with_hooks \
+    "$fakebin" \
+    "$home_dir" \
+    "$skill_root" \
+    "$skill_name" \
+    'mkdir -p "$INSTALLER_VENV_PATH/bin"' \
+    'mkdir -p "$INSTALLER_VENV_PATH/bin" && : > "$INSTALLER_VENV_PATH/bin/ddgs" && chmod +x "$INSTALLER_VENV_PATH/bin/ddgs"' 2>&1)"
+  status=$?
+  set -e
+
+  chmod 644 "$ROOT_DIR/SKILL.md.jinja"
+
+  [[ $status -ne 0 ]] || fail "unreadable template should exit non-zero"
+  assert_contains "$output" "[phase:template-render] ERROR: Template file is not readable:" "unreadable template phase error"
+  assert_contains "$output" "[phase:template-render] NEXT: Grant read permissions on SKILL.md.jinja and rerun." "unreadable template next action"
+  [[ ! -e "$skill_root/$skill_name/SKILL.md" ]] || fail "unreadable template should not leave destination SKILL.md"
+  pass "unreadable template fails cleanly without destination artifact"
 }
 
 printf '\nAll tests passed (%d checks).\n' "$PASS_COUNT"
