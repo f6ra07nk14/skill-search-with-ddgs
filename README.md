@@ -25,9 +25,12 @@ Current S04 scope is **preflight + local environment provisioning + rendered ski
 
 - Source template: repo-local `SKILL.md.jinja`.
 - Destination artifact: `<skill_root>/<skill_name>/SKILL.md`.
+- The rendered artifact uses the official skills format: YAML frontmatter followed by markdown section headings (not legacy wrapper tags).
 - Injected values include:
   - selected `--server-name`
   - concrete local executable path `<skill_root>/<skill_name>/.venv/bin/ddgs`
+- Workflow-first contract: MCP-first guidance appears before references (`mcp_servers` availability check first), DDGS Quick Reference material follows under `## References`, and fallback disclosure is explicit when DDGS is unavailable or weak.
+- The DDGS Quick Reference content includes the tools table, shared parameters/defaults, `extract_content` format reference, and backend support matrix.
 - Render failures are phase-scoped (`[phase:template-render]`) and fail fast before install completion output.
 
 ### Final MCP handoff output
@@ -68,5 +71,5 @@ Verification harness:
 
 - `bash -n install.sh`
 - `bash tests/test_install_preflight.sh` (preflight guardrails remain side-effect free)
-- `bash tests/test_install_environment.sh` (proves success-path MCP handoff output + fail-fast behavior across package/executable/template boundaries)
+- `bash tests/test_install_environment.sh` (authoritative install-boundary regression harness for rendered `SKILL.md`: verifies official skills format heading order, workflow MCP-first-to-fallback sequence, DDGS Quick Reference key table/section presence, and absence of legacy XML-like markers such as `<objective>`/`<required_sequence>`)
 
