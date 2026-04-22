@@ -52,6 +52,15 @@ assert_heading_order() {
   (( first_line < second_line )) || fail "$context (expected '$first' before '$second')"
 }
 
+assert_last_heading() {
+  local content="$1"
+  local expected="$2"
+  local actual
+
+  actual=$(grep '^## ' <<<"$content" | tail -n1 || true)
+  [[ "$actual" == "$expected" ]] || fail "README should end with '$expected' section (last heading was '$actual')"
+}
+
 [[ -f "$README" ]] || fail "README.md should exist"
 content="$(<"$README")"
 
@@ -61,24 +70,45 @@ assert_heading_exists "$content" "## Quick start"
 assert_heading_exists "$content" "## What success looks like"
 assert_heading_exists "$content" "## MCP handoff"
 assert_heading_exists "$content" "## Use the installed skill"
+assert_heading_exists "$content" "## Troubleshooting"
+assert_heading_exists "$content" "## Maintainer appendix"
 
 assert_heading_order "$content" "## What this installs" "## Prerequisite" "tutorial flow should explain installed result before prerequisite"
 assert_heading_order "$content" "## Prerequisite" "## Quick start" "tutorial flow should place prerequisite before quick start"
 assert_heading_order "$content" "## Quick start" "## What success looks like" "tutorial flow should define success after quick start"
 assert_heading_order "$content" "## What success looks like" "## MCP handoff" "tutorial flow should show success boundary before handoff details"
 assert_heading_order "$content" "## MCP handoff" "## Use the installed skill" "tutorial flow should describe MCP wiring before usage guidance"
+assert_heading_order "$content" "## Use the installed skill" "## Troubleshooting" "tutorial flow should include troubleshooting after usage guidance"
+assert_heading_order "$content" "## Troubleshooting" "## Maintainer appendix" "tutorial flow should end with maintainer appendix"
+assert_last_heading "$content" "## Maintainer appendix"
 pass "README heading flow matches first-run tutorial order"
 
 assert_contains "$content" 'bash install.sh' "README should use installer entry command"
 assert_contains "$content" 'uv' "README should name uv prerequisite"
 assert_contains "$content" '"mcpServers": {' "README should include MCP handoff snippet"
 assert_contains "$content" '[phase:install] S04 install complete. Local ddgs environment is ready.' "README should include final install completion signal"
-assert_contains "$content" 'SKILL.md' "README should delegate detailed post-install behavior to generated SKILL.md"
-pass "README includes required installer-aligned anchors"
+assert_contains "$content" 'Paste the emitted JSON under `mcpServers` exactly as printed.' "README should explain where to paste MCP snippet"
+assert_contains "$content" 'args: ["mcp"]' "README should preserve emitted MCP args"
+assert_contains "$content" 'generated `SKILL.md`' "README should delegate detailed post-install behavior to generated SKILL.md"
+assert_contains "$content" 'What changed this week in major AI model releases? Include sources.' "README should include one concrete current-information example"
+pass "README includes required MCP handoff, success boundary, and SKILL.md delegation anchors"
+
+assert_contains "$content" '[phase:<name>] ERROR:' "README troubleshooting should point to phase-prefixed installer errors"
+assert_contains "$content" '[phase:<name>] NEXT:' "README troubleshooting should point to phase-prefixed next-action guidance"
+assert_contains "$content" '`install.sh`' "README maintainer appendix should reference installer source"
+assert_contains "$content" '`SKILL.md.jinja`' "README maintainer appendix should reference template source"
+assert_contains "$content" '`tests/test_install_preflight.sh`' "README maintainer appendix should reference preflight contract tests"
+assert_contains "$content" '`tests/test_install_environment.sh`' "README maintainer appendix should reference environment contract tests"
+assert_contains "$content" 'bash -n install.sh' "README maintainer appendix should include installer syntax check command"
+assert_contains "$content" 'bash tests/test_readme_tutorial.sh' "README maintainer appendix should include README contract command"
+assert_contains "$content" 'bash tests/test_install_preflight.sh' "README maintainer appendix should include preflight contract command"
+assert_contains "$content" 'bash tests/test_install_environment.sh' "README maintainer appendix should include environment contract command"
+pass "README includes troubleshooting anchors plus maintainer references and verification commands"
 
 assert_not_contains "$content" 'GSD' "README should avoid planning-jargon terms"
 assert_not_contains "$content" 'milestone' "README should avoid planning-jargon terms"
 assert_not_contains "$content" 'slice' "README should avoid planning-jargon terms"
+assert_not_contains "$content" 'roadmap' "README should avoid planning-jargon terms"
 pass "README avoids internal planning terminology"
 
 printf '\nAll tests passed (%d checks).\n' "$PASS_COUNT"

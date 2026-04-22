@@ -52,7 +52,12 @@ If either signal is missing, treat the run as failed and follow the phase-specif
 
 ## MCP handoff
 
-Paste the emitted JSON under `mcpServers` in your MCP client configuration. Keep the generated `command` path and `args: ["mcp"]` exactly as emitted by the installer.
+1. Run `bash install.sh` and wait for the final `mcpServers` JSON block.
+2. Open your MCP client configuration and find (or create) the top-level `mcpServers` object.
+3. Paste the emitted JSON under `mcpServers` exactly as printed.
+4. Keep the generated `command` path and `args: ["mcp"]` unchanged.
+
+Do not replace that path with a global Python binary. The emitted command points to the skill-local `.venv` created by the installer.
 
 ## Use the installed skill
 
@@ -68,11 +73,24 @@ Use the generated `SKILL.md` as the detailed behavior contract for tool order, f
 
 - **`uv` not found**: install `uv`, then rerun `bash install.sh`.
 - **Target skill directory already exists**: choose a different `--skill-root`/`--skill-name`, or remove the existing directory before rerunning.
+- **Any technical failure**: read the first `[phase:<name>] ERROR:` and `[phase:<name>] NEXT:` lines in installer output, fix that phase, then rerun.
 - **No `mcpServers` block or no final completion line**: the install did not complete; fix the reported phase error and rerun.
 
-## Maintainer reference
+## Maintainer appendix
+
+Authoritative files:
 
 - `install.sh`
 - `SKILL.md.jinja`
+- `tests/test_readme_tutorial.sh`
 - `tests/test_install_preflight.sh`
 - `tests/test_install_environment.sh`
+
+Verification commands:
+
+```bash
+bash -n install.sh
+bash tests/test_readme_tutorial.sh
+bash tests/test_install_preflight.sh
+bash tests/test_install_environment.sh
+```
