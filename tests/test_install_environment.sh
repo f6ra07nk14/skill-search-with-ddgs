@@ -37,8 +37,24 @@ assert_occurrence_count() {
   local context="$4"
   local actual_count
 
-  actual_count=$(grep -Fo -- "$needle" <<<"$haystack" | wc -l | tr -d ' ')
+  actual_count=$( (grep -Fo -- "$needle" <<<"$haystack" | wc -l | tr -d ' ') || true )
   [[ "$actual_count" == "$expected_count" ]] || fail "$context (expected $expected_count, got $actual_count for: $needle)"
+}
+
+assert_line_order() {
+  local haystack="$1"
+  local first="$2"
+  local second="$3"
+  local context="$4"
+  local first_line
+  local second_line
+
+  first_line=$(grep -nF -- "$first" <<<"$haystack" | head -n1 | cut -d: -f1)
+  second_line=$(grep -nF -- "$second" <<<"$haystack" | head -n1 | cut -d: -f1)
+
+  [[ -n "$first_line" ]] || fail "$context (missing first marker: $first)"
+  [[ -n "$second_line" ]] || fail "$context (missing second marker: $second)"
+  (( first_line < second_line )) || fail "$context (expected '$first' before '$second')"
 }
 
 assert_file_contains() {
@@ -109,6 +125,10 @@ run_installer_with_hooks() {
   assert_contains "$output" '"args": ["mcp"]' "fresh install handoff args"
   assert_occurrence_count "$output" '"mcpServers": {' 1 "fresh install should emit exactly one handoff snippet"
   assert_contains "$output" "[phase:install] S04 install complete. Local ddgs environment is ready." "fresh install completion"
+  assert_not_contains "$output" "Skill root [" "fresh install should remain prompt-free in non-interactive mode"
+  assert_line_order "$output" "[phase:executable-verification] Verified executable:" "[phase:template-render] Rendered skill document:" "fresh install should verify executable before template rendering"
+  assert_line_order "$output" "[phase:template-render] Rendered skill document:" "[phase:install] Final MCP handoff snippet (copy under mcpServers in your MCP config):" "fresh install should emit snippet after template render"
+  assert_line_order "$output" '"mcpServers": {' "[phase:install] S04 install complete. Local ddgs environment is ready." "fresh install should print snippet before completion log"
   pass "fresh install creates rendered SKILL.md with injected values and MCP handoff"
 }
 
@@ -144,6 +164,7 @@ run_installer_with_hooks() {
   [[ $status -ne 0 ]] || fail "second run should fail on existing target"
   assert_contains "$output" "[phase:filesystem] ERROR: Target skill directory already exists:" "conflict phase error"
   assert_not_contains "$output" '"mcpServers": {' "conflict path should not emit MCP handoff"
+  assert_not_contains "$output" "Skill root [" "conflict failure should remain prompt-free in non-interactive mode"
   [[ "$(cat "$marker")" == "keep" ]] || fail "conflict path should not overwrite existing files"
   pass "same-name conflict is refused before mutation"
 }
@@ -170,6 +191,7 @@ run_installer_with_hooks() {
   assert_contains "$output" "[phase:package-install] ERROR: uv pip install failed" "package failure phase"
   assert_contains "$output" "exit code 23" "package failure exit code surfaced"
   assert_not_contains "$output" '"mcpServers": {' "package failure should not emit MCP handoff"
+  assert_not_contains "$output" "Skill root [" "package failure should remain prompt-free in non-interactive mode"
   [[ -d "$skill_root/$skill_name/.venv" ]] || fail "venv should remain for inspection after package failure"
   pass "package-install failures are surfaced with phase-prefixed diagnostics"
 }
@@ -195,6 +217,7 @@ run_installer_with_hooks() {
   [[ $status -ne 0 ]] || fail "missing ddgs executable should exit non-zero"
   assert_contains "$output" "[phase:executable-verification] ERROR: Missing ddgs executable after install:" "missing ddgs phase error"
   assert_not_contains "$output" '"mcpServers": {' "missing ddgs should not emit MCP handoff"
+  assert_not_contains "$output" "Skill root [" "missing ddgs failure should remain prompt-free in non-interactive mode"
   pass "missing ddgs path is detected as verification failure"
 }
 
@@ -219,6 +242,7 @@ run_installer_with_hooks() {
   [[ $status -ne 0 ]] || fail "non-executable ddgs should exit non-zero"
   assert_contains "$output" "[phase:executable-verification] ERROR: ddgs path is not executable:" "non-executable ddgs phase error"
   assert_not_contains "$output" '"mcpServers": {' "non-executable ddgs should not emit MCP handoff"
+  assert_not_contains "$output" "Skill root [" "non-executable ddgs failure should remain prompt-free in non-interactive mode"
   pass "non-executable ddgs path is rejected"
 }
 
@@ -249,6 +273,7 @@ run_installer_with_hooks() {
   assert_contains "$output" "[phase:template-render] ERROR: Template not found:" "missing template phase error"
   assert_contains "$output" "[phase:template-render] NEXT: Restore SKILL.md.jinja in the installer repository and rerun." "missing template next action"
   assert_not_contains "$output" '"mcpServers": {' "missing template should not emit MCP handoff"
+  assert_not_contains "$output" "Skill root [" "missing template failure should remain prompt-free in non-interactive mode"
   [[ ! -e "$skill_root/$skill_name/SKILL.md" ]] || fail "missing template should not leave destination SKILL.md"
   pass "missing template fails cleanly without destination artifact"
 }
@@ -278,6 +303,7 @@ run_installer_with_hooks() {
   assert_contains "$output" "[phase:template-render] ERROR: Template file is not readable:" "unreadable template phase error"
   assert_contains "$output" "[phase:template-render] NEXT: Grant read permissions on SKILL.md.jinja and rerun." "unreadable template next action"
   assert_not_contains "$output" '"mcpServers": {' "unreadable template should not emit MCP handoff"
+  assert_not_contains "$output" "Skill root [" "unreadable template failure should remain prompt-free in non-interactive mode"
   [[ ! -e "$skill_root/$skill_name/SKILL.md" ]] || fail "unreadable template should not leave destination SKILL.md"
   pass "unreadable template fails cleanly without destination artifact"
 }
@@ -303,6 +329,8 @@ run_installer_with_hooks() {
   escaped_server='"odd\"name\\with\ttab": {'
   assert_contains "$output" "$escaped_server" "unusual server names should be JSON-escaped"
   assert_contains "$output" "\"command\": \"$ddgs_path\"" "escaped server test should still print resolved command path"
+  assert_occurrence_count "$output" '"mcpServers": {' 1 "escaped server run should emit exactly one handoff snippet"
+  assert_not_contains "$output" "Skill root [" "escaped server run should remain prompt-free in non-interactive mode"
   assert_contains "$output" "[phase:install] S04 install complete. Local ddgs environment is ready." "escaped server test should still complete"
   pass "unusual server names are emitted as literal JSON strings"
 }

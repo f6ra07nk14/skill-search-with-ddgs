@@ -30,6 +30,17 @@ assert_not_contains() {
   [[ "$haystack" != *"$needle"* ]] || fail "$context (unexpected: $needle)"
 }
 
+assert_occurrence_count() {
+  local haystack="$1"
+  local needle="$2"
+  local expected_count="$3"
+  local context="$4"
+  local actual_count
+
+  actual_count=$( (grep -Fo -- "$needle" <<<"$haystack" | wc -l | tr -d ' ') || true )
+  [[ "$actual_count" == "$expected_count" ]] || fail "$context (expected $expected_count, got $actual_count for: $needle)"
+}
+
 make_fake_uv_bin() {
   local dir
   dir="$(mktemp -d)"
@@ -232,7 +243,31 @@ assert_no_mutation() {
 
   [[ $status -ne 0 ]] || fail "malformed uv probe output should exit non-zero"
   assert_contains "$output" "uv not found in PATH." "malformed uv output treated as unavailable"
+  assert_not_contains "$output" "Skill root [" "malformed uv probe path should remain prompt-free in non-interactive mode"
+  assert_not_contains "$output" '"mcpServers": {' "malformed uv probe path should not emit MCP handoff"
   pass "malformed uv probe output does not bypass preflight"
+}
+
+# 11) missing uv in non-interactive mode fails fast without prompting or snippet output
+{
+  emptybin="$(make_empty_bin)"
+  home_dir="$(mktemp -d)"
+  set +e
+  output="$(env -i \
+    HOME="$home_dir" \
+    PATH="$emptybin:/usr/bin:/bin" \
+    bash "$INSTALLER" --non-interactive 2>&1)"
+  status=$?
+  set -e
+
+  [[ $status -ne 0 ]] || fail "missing uv in non-interactive mode should exit non-zero"
+  assert_contains "$output" "[phase:uv] ERROR: uv not found in PATH." "missing uv non-interactive phase error"
+  assert_contains "$output" "[phase:uv] NEXT: Install uv manually, then rerun with --non-interactive." "missing uv non-interactive next action"
+  assert_not_contains "$output" "Run guided uv installer now?" "missing uv non-interactive should not prompt for guided install"
+  assert_not_contains "$output" "Skill root [" "missing uv non-interactive should not prompt for config"
+  assert_not_contains "$output" '"mcpServers": {' "missing uv non-interactive should not emit MCP handoff"
+  assert_occurrence_count "$output" '"mcpServers": {' 0 "missing uv non-interactive should emit zero handoff snippets"
+  pass "missing uv non-interactive path is prompt-free and snippet-free"
 }
 
 printf '\nAll tests passed (%d checks).\n' "$PASS_COUNT"
