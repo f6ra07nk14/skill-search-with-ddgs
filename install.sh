@@ -41,7 +41,8 @@ Usage: $SCRIPT_NAME [options]
 
 Installer entrypoint for the search-with-ddgs skill.
 This S02 scope resolves installer config, runs prerequisite checks,
-creates the target skill directory, and provisions a local .venv.
+creates the target skill directory, provisions a local .venv,
+installs ddgs[api,mcp], and verifies the local ddgs executable.
 
 Options:
   --skill-root <path>      Skill install root (default: $DEFAULT_SKILL_ROOT)
@@ -67,8 +68,8 @@ expand_user_path() {
     return
   fi
 
-  if [[ "$raw_path" == ~/* ]]; then
-    printf '%s/%s' "$HOME" "${raw_path#~/}"
+  if [[ "$raw_path" == "~/"* ]]; then
+    printf '%s/%s' "$HOME" "${raw_path:2}"
     return
   fi
 
@@ -360,7 +361,7 @@ resolve_install_paths() {
 }
 
 validate_destination_paths() {
-  local root_parent
+  local writable_ancestor
 
   if [[ -d "$RESOLVED_SKILL_ROOT" ]]; then
     if [[ ! -w "$RESOLVED_SKILL_ROOT" ]]; then
@@ -373,14 +374,17 @@ validate_destination_paths() {
     fatal_phase "filesystem" "Skill root exists but is not a directory: $RESOLVED_SKILL_ROOT" "Choose a directory path for --skill-root."
   fi
 
-  root_parent="$(dirname "$RESOLVED_SKILL_ROOT")"
+  writable_ancestor="$RESOLVED_SKILL_ROOT"
+  while [[ ! -d "$writable_ancestor" ]]; do
+    writable_ancestor="$(dirname "$writable_ancestor")"
+    if [[ "$writable_ancestor" == "." || -z "$writable_ancestor" ]]; then
+      writable_ancestor="/"
+      break
+    fi
+  done
 
-  if [[ ! -d "$root_parent" ]]; then
-    fatal_phase "filesystem" "Parent directory for skill root does not exist: $root_parent" "Create the parent directory or choose another --skill-root."
-  fi
-
-  if [[ ! -w "$root_parent" ]]; then
-    fatal_phase "filesystem" "Parent directory is not writable: $root_parent" "Grant write permission on the parent or choose another --skill-root."
+  if [[ ! -w "$writable_ancestor" ]]; then
+    fatal_phase "filesystem" "No writable ancestor for skill root: $RESOLVED_SKILL_ROOT (nearest existing: $writable_ancestor)" "Grant write permission on an ancestor path or choose another --skill-root."
   fi
 }
 
@@ -449,12 +453,68 @@ create_local_venv() {
   log_phase "venv" "Local environment ready: $RESOLVED_VENV_PATH"
 }
 
-provision_filesystem_and_venv() {
+run_uv_pip_install() {
+  local venv_path="$1"
+  local package_spec="$2"
+
+  if [[ -n "${INSTALLER_UV_PIP_INSTALL_CMD:-}" ]]; then
+    INSTALLER_VENV_PATH="$venv_path" INSTALLER_PACKAGE_SPEC="$package_spec" bash -c "$INSTALLER_UV_PIP_INSTALL_CMD"
+  else
+    uv pip install --python "$venv_path/bin/python" "$package_spec"
+  fi
+}
+
+install_ddgs_package() {
+  local package_status
+  local package_spec="ddgs[api,mcp]"
+
+  if [[ -z "$RESOLVED_VENV_PATH" ]]; then
+    fatal_phase "package-install" "Resolved venv path is empty; cannot install packages." "Resolve installer paths and rerun."
+  fi
+
+  log_phase "package-install" "Installing $package_spec into $RESOLVED_VENV_PATH"
+
+  set +e
+  run_uv_pip_install "$RESOLVED_VENV_PATH" "$package_spec"
+  package_status=$?
+  set -e
+
+  if [[ $package_status -ne 0 ]]; then
+    fatal_phase "package-install" "uv pip install failed for '$RESOLVED_VENV_PATH' with exit code $package_status." "Inspect uv output in the local environment and rerun when resolved."
+  fi
+
+  log_phase "package-install" "Package installation completed in $RESOLVED_VENV_PATH"
+}
+
+verify_ddgs_executable() {
+  local ddgs_path
+
+  if [[ -z "$RESOLVED_VENV_PATH" ]]; then
+    fatal_phase "executable-verification" "Resolved venv path is empty; cannot verify executable." "Resolve installer paths and rerun."
+  fi
+
+  ddgs_path="$RESOLVED_VENV_PATH/bin/ddgs"
+  log_phase "executable-verification" "Checking executable at $ddgs_path"
+
+  if [[ ! -e "$ddgs_path" ]]; then
+    fatal_phase "executable-verification" "Missing ddgs executable after install: $ddgs_path" "Inspect package installation output and rerun in a clean target directory."
+  fi
+
+  if [[ ! -x "$ddgs_path" ]]; then
+    fatal_phase "executable-verification" "ddgs path is not executable: $ddgs_path" "Fix permissions or reinstall the local environment before retrying."
+  fi
+
+  log_phase "executable-verification" "Verified executable: $ddgs_path"
+}
+
+provision_skill_environment() {
   log_phase "filesystem" "Validating destination paths."
   resolve_install_paths
   validate_destination_paths
   create_skill_directory
   create_local_venv
+  install_ddgs_package
+  verify_ddgs_executable
 }
 
 main() {
@@ -462,8 +522,8 @@ main() {
   resolve_config
   check_platform
   ensure_uv
-  provision_filesystem_and_venv
-  log_phase "install" "S02 filesystem and venv provisioning complete. Package installation phase has not run yet."
+  provision_skill_environment
+  log_phase "install" "S02 install complete. Local ddgs environment is ready."
 }
 
 main "$@"

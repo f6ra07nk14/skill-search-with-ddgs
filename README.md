@@ -8,7 +8,7 @@ This repository now includes a shell installer entrypoint:
 
 - `install.sh`
 
-Current S01 scope is **preflight-only**: it resolves installer config values and checks platform + `uv` prerequisites before any filesystem mutation.
+Current S02 scope is **preflight + local environment provisioning**: it resolves installer config values, checks platform + `uv`, creates `<skill_root>/<skill_name>/.venv`, installs `ddgs[api,mcp]` into that local environment, and verifies `<skill_root>/<skill_name>/.venv/bin/ddgs` before reporting success.
 
 ### Preflight requirements and behavior
 
@@ -37,4 +37,5 @@ Verification harness:
 
 - `bash -n install.sh`
 - `bash tests/test_install_preflight.sh`
+- `bash tests/test_install_environment.sh`
 

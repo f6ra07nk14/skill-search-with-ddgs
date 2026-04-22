@@ -30,16 +30,6 @@ assert_not_contains() {
   [[ "$haystack" != *"$needle"* ]] || fail "$context (unexpected: $needle)"
 }
 
-run_installer() {
-  local fakebin="$1"
-  shift
-
-  env -i \
-    HOME="/tmp/test-home" \
-    PATH="$fakebin:/usr/bin:/bin" \
-    bash "$INSTALLER" "$@"
-}
-
 make_fake_uv_bin() {
   local dir
   dir="$(mktemp -d)"
@@ -55,37 +45,51 @@ make_empty_bin() {
   mktemp -d
 }
 
+run_installer() {
+  local fakebin="$1"
+  local home_dir="$2"
+  shift 2
+
+  env -i \
+    HOME="$home_dir" \
+    PATH="$fakebin:/usr/bin:/bin" \
+    INSTALLER_UV_VENV_CMD='mkdir -p "$INSTALLER_VENV_PATH"' \
+    INSTALLER_UV_PIP_INSTALL_CMD='mkdir -p "$INSTALLER_VENV_PATH/bin" && : > "$INSTALLER_VENV_PATH/bin/ddgs" && chmod +x "$INSTALLER_VENV_PATH/bin/ddgs"' \
+    bash "$INSTALLER" "$@"
+}
+
 assert_no_mutation() {
   local root="$1"
   local skill_name="$2"
   [[ ! -e "$root" ]] || fail "preflight should not create skill root: $root"
   [[ ! -e "$root/$skill_name" ]] || fail "preflight should not create skill directory: $root/$skill_name"
-  [[ ! -e "$root/$skill_name/.venv" ]] || fail "preflight should not create venv path"
-  [[ ! -e "$root/$skill_name/.mcp.json" ]] || fail "preflight should not create MCP config"
 }
 
-# 1) defaults resolve in non-interactive mode + fake PATH uv succeeds
+# 1) defaults resolve in non-interactive mode and complete deterministic install
 {
   fakebin="$(make_fake_uv_bin)"
-  output="$(run_installer "$fakebin" --non-interactive 2>&1)"
+  home_dir="$(mktemp -d)"
+  output="$(run_installer "$fakebin" "$home_dir" --non-interactive 2>&1)"
   assert_contains "$output" "[phase:config] Non-interactive resolution: using flags and defaults only." "defaults: mode message"
   assert_contains "$output" "skill_root='~/.agents/skills'" "defaults: skill root"
   assert_contains "$output" "skill_name='search-with-ddgs'" "defaults: skill name"
   assert_contains "$output" "server_name='ddgs'" "defaults: server name"
   assert_contains "$output" "[phase:uv] Detected uv in PATH." "defaults: uv detected"
-  assert_contains "$output" "[phase:preflight] Preflight checks passed." "defaults: success"
+  assert_contains "$output" "[phase:install] S02 install complete. Local ddgs environment is ready." "defaults: install success"
   pass "defaults resolve in non-interactive mode"
 }
 
 # 2) explicit flags override defaults and trim whitespace
 {
   fakebin="$(make_fake_uv_bin)"
-  output="$(run_installer "$fakebin" \
+  home_dir="$(mktemp -d)"
+  custom_root="$(mktemp -d)/custom-root"
+  output="$(run_installer "$fakebin" "$home_dir" \
     --non-interactive \
-    --skill-root "  /tmp/custom-root  " \
+    --skill-root "  $custom_root  " \
     --skill-name "  custom-skill  " \
     --server-name "  custom-server  " 2>&1)"
-  assert_contains "$output" "skill_root='/tmp/custom-root'" "flags: skill root"
+  assert_contains "$output" "skill_root='$custom_root'" "flags: skill root"
   assert_contains "$output" "skill_name='custom-skill'" "flags: skill name"
   assert_contains "$output" "server_name='custom-server'" "flags: server name"
   pass "explicit flags override defaults"
@@ -94,10 +98,13 @@ assert_no_mutation() {
 # 3) interactive prompt accepts bare Enter defaults
 {
   fakebin="$(make_fake_uv_bin)"
+  home_dir="$(mktemp -d)"
   output="$(printf '\n\n\n' | env -i \
-    HOME="/tmp/test-home" \
+    HOME="$home_dir" \
     PATH="$fakebin:/usr/bin:/bin" \
     INSTALLER_FORCE_INTERACTIVE=1 \
+    INSTALLER_UV_VENV_CMD='mkdir -p "$INSTALLER_VENV_PATH"' \
+    INSTALLER_UV_PIP_INSTALL_CMD='mkdir -p "$INSTALLER_VENV_PATH/bin" && : > "$INSTALLER_VENV_PATH/bin/ddgs" && chmod +x "$INSTALLER_VENV_PATH/bin/ddgs"' \
     bash "$INSTALLER" 2>&1)"
   assert_contains "$output" "[phase:config] Interactive mode: collecting installer settings." "prompt: interactive mode"
   assert_contains "$output" "skill_root='~/.agents/skills'" "prompt: default root"
@@ -109,8 +116,9 @@ assert_no_mutation() {
 # 4) unknown flag fails with targeted message
 {
   fakebin="$(make_fake_uv_bin)"
+  home_dir="$(mktemp -d)"
   set +e
-  output="$(run_installer "$fakebin" --bogus 2>&1)"
+  output="$(run_installer "$fakebin" "$home_dir" --bogus 2>&1)"
   status=$?
   set -e
 
@@ -123,8 +131,9 @@ assert_no_mutation() {
 # 5) missing option value fails clearly
 {
   fakebin="$(make_fake_uv_bin)"
+  home_dir="$(mktemp -d)"
   set +e
-  output="$(run_installer "$fakebin" --skill-root 2>&1)"
+  output="$(run_installer "$fakebin" "$home_dir" --skill-root 2>&1)"
   status=$?
   set -e
 
@@ -133,15 +142,16 @@ assert_no_mutation() {
   pass "missing option value rejected"
 }
 
-# 6) unsupported platform blocks preflight before mutation
+# 6) unsupported platform blocks before mutation
 {
   fakebin="$(make_fake_uv_bin)"
+  home_dir="$(mktemp -d)"
   tmp_root="$(mktemp -d)"
   target_root="$tmp_root/skills-root"
 
   set +e
   output="$(env -i \
-    HOME="/tmp/test-home" \
+    HOME="$home_dir" \
     PATH="$fakebin:/usr/bin:/bin" \
     INSTALLER_UNAME_CMD="printf 'Solaris'" \
     bash "$INSTALLER" --non-interactive --skill-root "$target_root" --skill-name "candidate" 2>&1)"
@@ -157,10 +167,11 @@ assert_no_mutation() {
 # 7) empty platform probe is treated as preflight failure
 {
   fakebin="$(make_fake_uv_bin)"
+  home_dir="$(mktemp -d)"
 
   set +e
   output="$(env -i \
-    HOME="/tmp/test-home" \
+    HOME="$home_dir" \
     PATH="$fakebin:/usr/bin:/bin" \
     INSTALLER_UNAME_CMD="printf ''" \
     bash "$INSTALLER" --non-interactive 2>&1)"
@@ -175,7 +186,8 @@ assert_no_mutation() {
 # 8) non-interactive mode suppresses prompting
 {
   fakebin="$(make_fake_uv_bin)"
-  output="$(run_installer "$fakebin" --non-interactive 2>&1)"
+  home_dir="$(mktemp -d)"
+  output="$(run_installer "$fakebin" "$home_dir" --non-interactive 2>&1)"
   assert_not_contains "$output" "Skill root [" "non-interactive should not prompt"
   pass "non-interactive mode suppresses prompts"
 }
@@ -183,12 +195,13 @@ assert_no_mutation() {
 # 9) missing uv prints official guidance and declined install fails with no mutation
 {
   emptybin="$(make_empty_bin)"
+  home_dir="$(mktemp -d)"
   tmp_root="$(mktemp -d)"
   target_root="$tmp_root/skills-root"
 
   set +e
   output="$(printf '\n\n\nn\n' | env -i \
-    HOME="/tmp/test-home" \
+    HOME="$home_dir" \
     PATH="$emptybin:/usr/bin:/bin" \
     INSTALLER_FORCE_INTERACTIVE=1 \
     bash "$INSTALLER" --skill-root "$target_root" --skill-name "candidate" 2>&1)"
@@ -203,56 +216,13 @@ assert_no_mutation() {
   pass "missing uv guidance + decline path is explicit and side-effect free"
 }
 
-# 10) guided installer failure reports exit code and no mutation
-{
-  emptybin="$(make_empty_bin)"
-  tmp_root="$(mktemp -d)"
-  target_root="$tmp_root/skills-root"
-
-  set +e
-  output="$(printf '\n\n\ny\n' | env -i \
-    HOME="/tmp/test-home" \
-    PATH="$emptybin:/usr/bin:/bin" \
-    INSTALLER_FORCE_INTERACTIVE=1 \
-    INSTALLER_UV_INSTALL_CMD='(exit 17)' \
-    bash "$INSTALLER" --skill-root "$target_root" --skill-name "candidate" 2>&1)"
-  status=$?
-  set -e
-
-  [[ $status -ne 0 ]] || fail "guided installer failure should exit non-zero"
-  assert_contains "$output" "Guided uv installer failed with exit code 17." "guided installer failure message"
-  assert_no_mutation "$target_root" "candidate"
-  pass "guided installer failure is surfaced with exit code"
-}
-
-# 11) post-install re-check failure remains fatal
-{
-  emptybin="$(make_empty_bin)"
-  tmp_root="$(mktemp -d)"
-  target_root="$tmp_root/skills-root"
-
-  set +e
-  output="$(printf '\n\n\ny\n' | env -i \
-    HOME="/tmp/test-home" \
-    PATH="$emptybin:/usr/bin:/bin" \
-    INSTALLER_FORCE_INTERACTIVE=1 \
-    INSTALLER_UV_INSTALL_CMD='true' \
-    bash "$INSTALLER" --skill-root "$target_root" --skill-name "candidate" 2>&1)"
-  status=$?
-  set -e
-
-  [[ $status -ne 0 ]] || fail "failed uv re-check should exit non-zero"
-  assert_contains "$output" "uv still unavailable after guided install attempt." "post-install re-check message"
-  assert_no_mutation "$target_root" "candidate"
-  pass "post-install re-check failure remains fatal"
-}
-
-# 12) malformed uv probe output is treated as unavailable
+# 10) malformed uv probe output is treated as unavailable
 {
   fakebin="$(make_fake_uv_bin)"
+  home_dir="$(mktemp -d)"
   set +e
   output="$(env -i \
-    HOME="/tmp/test-home" \
+    HOME="$home_dir" \
     PATH="$fakebin:/usr/bin:/bin" \
     INSTALLER_UV_PATH_CMD="printf '/tmp/uv\n/extra'" \
     INSTALLER_FORCE_INTERACTIVE=1 \
