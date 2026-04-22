@@ -75,7 +75,7 @@ assert_no_mutation() {
   assert_contains "$output" "skill_name='search-with-ddgs'" "defaults: skill name"
   assert_contains "$output" "server_name='ddgs'" "defaults: server name"
   assert_contains "$output" "[phase:uv] Detected uv in PATH." "defaults: uv detected"
-  assert_contains "$output" "[phase:install] S02 install complete. Local ddgs environment is ready." "defaults: install success"
+  assert_contains "$output" "[phase:install] S04 install complete. Local ddgs environment is ready." "defaults: install success"
   pass "defaults resolve in non-interactive mode"
 }
 

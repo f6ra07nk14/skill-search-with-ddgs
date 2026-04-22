@@ -606,6 +606,43 @@ render_skill_template() {
   log_phase "$phase" "Rendered skill document: $destination_path"
 }
 
+json_escape_string() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  value="${value//$'\n'/\\n}"
+  value="${value//$'\r'/\\r}"
+  value="${value//$'\t'/\\t}"
+  printf '%s' "$value"
+}
+
+emit_mcp_handoff_snippet() {
+  local phase="install"
+  local escaped_server_name
+  local escaped_ddgs_path
+
+  if [[ -z "$SERVER_NAME" ]]; then
+    fatal_phase "$phase" "Resolved server name is empty; refusing to emit MCP handoff snippet." "Set --server-name to a non-empty value and rerun."
+  fi
+
+  if [[ -z "$RESOLVED_DDGS_PATH" ]]; then
+    fatal_phase "$phase" "Resolved ddgs executable path is empty; refusing to emit MCP handoff snippet." "Resolve executable verification before emitting handoff output."
+  fi
+
+  escaped_server_name="$(json_escape_string "$SERVER_NAME")"
+  escaped_ddgs_path="$(json_escape_string "$RESOLVED_DDGS_PATH")"
+
+  log_phase "$phase" "Final MCP handoff snippet (copy under mcpServers in your MCP config):"
+  printf '{\n'
+  printf '  "mcpServers": {\n'
+  printf '    "%s": {\n' "$escaped_server_name"
+  printf '      "command": "%s",\n' "$escaped_ddgs_path"
+  printf '      "args": ["mcp"]\n'
+  printf '    }\n'
+  printf '  }\n'
+  printf '}\n'
+}
+
 provision_skill_environment() {
   log_phase "filesystem" "Validating destination paths."
   resolve_install_paths
@@ -623,7 +660,8 @@ main() {
   check_platform
   ensure_uv
   provision_skill_environment
-  log_phase "install" "S02 install complete. Local ddgs environment is ready."
+  emit_mcp_handoff_snippet
+  log_phase "install" "S04 install complete. Local ddgs environment is ready."
 }
 
 main "$@"

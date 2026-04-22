@@ -8,7 +8,7 @@ This repository now includes a shell installer entrypoint:
 
 - `install.sh`
 
-Current S03 scope is **preflight + local environment provisioning + rendered skill artifact**: it resolves installer config values, checks platform + `uv`, creates `<skill_root>/<skill_name>/.venv`, installs `ddgs[api,mcp]` into that local environment, verifies `<skill_root>/<skill_name>/.venv/bin/ddgs`, and then renders `<skill_root>/<skill_name>/SKILL.md` from the repo-local `SKILL.md.jinja` template before reporting success.
+Current S04 scope is **preflight + local environment provisioning + rendered skill artifact + MCP handoff output**: it resolves installer config values, checks platform + `uv`, creates `<skill_root>/<skill_name>/.venv`, installs `ddgs[api,mcp]` into that local environment, verifies `<skill_root>/<skill_name>/.venv/bin/ddgs`, renders `<skill_root>/<skill_name>/SKILL.md` from the repo-local `SKILL.md.jinja` template, and then emits one copy-ready MCP snippet before reporting install completion.
 
 ### Preflight requirements and behavior
 
@@ -30,6 +30,28 @@ Current S03 scope is **preflight + local environment provisioning + rendered ski
   - concrete local executable path `<skill_root>/<skill_name>/.venv/bin/ddgs`
 - Render failures are phase-scoped (`[phase:template-render]`) and fail fast before install completion output.
 
+### Final MCP handoff output
+
+On successful completion only (after executable verification and template rendering), the installer prints exactly one copy-ready JSON block that you can paste into your MCP configuration:
+
+```json
+{
+  "mcpServers": {
+    "<server_name>": {
+      "command": "<skill_root>/<skill_name>/.venv/bin/ddgs",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+Contract details:
+
+- `<server_name>` is the selected `--server-name` value.
+- `command` is the resolved skill-local executable path.
+- `args` is always `["mcp"]`.
+- Any preflight/install/render failure exits before this snippet is emitted, so snippet absence is a trustworthy failure signal.
+
 ### CLI contract
 
 ```bash
@@ -46,5 +68,5 @@ Verification harness:
 
 - `bash -n install.sh`
 - `bash tests/test_install_preflight.sh` (preflight guardrails remain side-effect free)
-- `bash tests/test_install_environment.sh` (proves successful `SKILL.md` rendering + template-render failure behavior)
+- `bash tests/test_install_environment.sh` (proves success-path MCP handoff output + fail-fast behavior across package/executable/template boundaries)
 
