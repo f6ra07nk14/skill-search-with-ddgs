@@ -155,21 +155,89 @@ resolve_config() {
   log_phase "config" "Resolved skill_root='$SKILL_ROOT' skill_name='$SKILL_NAME' server_name='$SERVER_NAME'."
 }
 
+platform_probe_output() {
+  if [[ -n "${INSTALLER_UNAME_CMD:-}" ]]; then
+    eval "$INSTALLER_UNAME_CMD"
+  else
+    uname -s
+  fi
+}
+
 check_platform() {
-  local os_name
-  os_name="$(uname -s | tr '[:upper:]' '[:lower:]')"
-  case "$os_name" in
+  local platform_raw
+  local platform_status
+  local platform
+
+  set +e
+  platform_raw="$(platform_probe_output 2>/dev/null)"
+  platform_status=$?
+  set -e
+
+  platform_raw="$(trim "$platform_raw")"
+
+  if [[ $platform_status -ne 0 || -z "$platform_raw" ]]; then
+    fatal_phase "platform" "Could not determine platform from uname probe." "Retry in a normal shell where 'uname -s' succeeds."
+  fi
+
+  platform="$(printf '%s' "$platform_raw" | tr '[:upper:]' '[:lower:]')"
+
+  case "$platform" in
     darwin|linux)
-      log_phase "platform" "Supported platform detected: $os_name."
+      log_phase "platform" "Supported platform detected: $platform."
       ;;
     *)
-      fatal_phase "platform" "Unsupported platform: $os_name." "Use macOS or Linux for this installer."
+      fatal_phase "platform" "Unsupported platform: $platform." "Use macOS or Linux for this installer."
       ;;
   esac
 }
 
+uv_probe_output() {
+  if [[ -n "${INSTALLER_UV_PATH_CMD:-}" ]]; then
+    eval "$INSTALLER_UV_PATH_CMD"
+  else
+    command -v uv
+  fi
+}
+
+print_uv_install_guidance() {
+  printf '[phase:uv] INSTALL: Install uv via one of the official commands:\n' >&2
+  printf '[phase:uv] INSTALL:   curl -LsSf https://astral.sh/uv/install.sh | sh\n' >&2
+  printf '[phase:uv] INSTALL:   wget -qO- https://astral.sh/uv/install.sh | sh\n' >&2
+  printf '[phase:uv] INSTALL: Docs: https://docs.astral.sh/uv/getting-started/installation/\n' >&2
+}
+
 uv_available() {
-  command -v uv >/dev/null 2>&1
+  local uv_raw
+  local uv_status
+  local uv_path
+
+  set +e
+  uv_raw="$(uv_probe_output 2>/dev/null)"
+  uv_status=$?
+  set -e
+
+  if [[ $uv_status -ne 0 ]]; then
+    return 1
+  fi
+
+  uv_raw="$(trim "$uv_raw")"
+
+  # Guard against malformed probe output such as empty/multi-line values.
+  if [[ -z "$uv_raw" || "$uv_raw" == *$'\n'* ]]; then
+    return 1
+  fi
+
+  uv_path="${uv_raw%% *}"
+
+  if [[ -z "$uv_path" ]]; then
+    return 1
+  fi
+
+  if [[ "$uv_path" == */* && ! -x "$uv_path" ]]; then
+    return 1
+  fi
+
+  return 0
 }
 
 guided_uv_install_cmd() {
@@ -180,35 +248,51 @@ guided_uv_install_cmd() {
   fi
 }
 
+run_guided_uv_install() {
+  local cmd="$1"
+  local install_status
+
+  set +e
+  eval "$cmd"
+  install_status=$?
+  set -e
+
+  if [[ $install_status -ne 0 ]]; then
+    fatal_phase "uv" "Guided uv installer failed with exit code $install_status." "Install uv manually, then rerun this installer."
+  fi
+}
+
 attempt_guided_uv_install() {
   local answer
+  local normalized_answer
   local cmd
 
+  print_uv_install_guidance
+
   if [[ "$NON_INTERACTIVE" -eq 1 ]]; then
-    fatal_phase "uv" "uv is not installed." "Install uv manually (https://docs.astral.sh/uv/getting-started/installation/) then re-run with --non-interactive."
+    fatal_phase "uv" "uv is not installed." "Install uv manually, then rerun with --non-interactive."
   fi
 
   if ! is_interactive; then
     fatal_phase "uv" "uv is not installed and prompts are unavailable (non-TTY)." "Run in a TTY session or install uv manually before rerunning."
   fi
 
-  printf 'uv is missing. Run guided uv installer now? [Y/n]: ' >&2
+  printf 'uv is missing. Run guided uv installer now? [y/N]: ' >&2
   IFS= read -r answer || true
-  answer="$(trim "$answer")"
+  normalized_answer="$(trim "$(printf '%s' "$answer" | tr '[:upper:]' '[:lower:]')")"
 
-  if [[ -z "$answer" || "$answer" =~ ^[Yy]$ ]]; then
-    cmd="$(guided_uv_install_cmd)"
-    log_phase "uv" "Attempting guided uv install."
-    if ! eval "$cmd"; then
-      fatal_phase "uv" "Guided uv install command failed." "Install uv manually, then rerun this installer."
-    fi
-    log_phase "uv" "Guided uv install attempt finished; re-checking uv."
-  else
+  if [[ "$normalized_answer" != "y" && "$normalized_answer" != "yes" ]]; then
     fatal_phase "uv" "uv installation declined." "Install uv manually, then rerun this installer."
   fi
+
+  cmd="$(guided_uv_install_cmd)"
+  log_phase "uv" "Attempting guided uv install."
+  run_guided_uv_install "$cmd"
+  log_phase "uv" "Guided uv install attempt finished; re-checking uv."
 }
 
 ensure_uv() {
+  log_phase "uv" "Checking for uv in PATH."
   if uv_available; then
     log_phase "uv" "Detected uv in PATH."
     return
