@@ -1,41 +1,35 @@
 # skill-search-with-ddgs
 
-Empowering AI Agents with the skill to execute web searches by invoking DDGS via MCP tools.
+Install a local `search-with-ddgs` skill so your agent can fetch current web information through an MCP server backed by DDGS.
 
-## Installer entrypoint
+## What this installs
 
-This repository now includes a shell installer entrypoint:
+Running the installer sets up a skill-local runtime (by default under `~/.agents/skills/search-with-ddgs`) and prepares the MCP handoff:
 
-- `install.sh`
+- creates a new skill directory
+- creates a local `.venv`
+- installs `ddgs[api,mcp]` into that environment
+- verifies the local `ddgs` executable
+- renders a generated `SKILL.md` for post-install usage guidance
+- prints a copy-ready `mcpServers` JSON block
 
-Current S04 scope is **preflight + local environment provisioning + rendered skill artifact + MCP handoff output**: it resolves installer config values, checks platform + `uv`, creates `<skill_root>/<skill_name>/.venv`, installs `ddgs[api,mcp]` into that local environment, verifies `<skill_root>/<skill_name>/.venv/bin/ddgs`, renders `<skill_root>/<skill_name>/SKILL.md` from the repo-local `SKILL.md.jinja` template, and then emits one copy-ready MCP snippet before reporting install completion.
+## Prerequisite
 
-### Preflight requirements and behavior
+You need `uv` on your `PATH` before install. If `uv` is missing, the installer prints official install commands and stops before changing anything in non-interactive mode.
 
-- Supported platforms: **macOS** (`darwin`) and **Linux** (`linux`) only.
-- `uv` must be available on `PATH` before installer work can proceed.
-- If `uv` is missing, the installer prints official install guidance for both commands:
-  - `curl -LsSf https://astral.sh/uv/install.sh | sh`
-  - `wget -qO- https://astral.sh/uv/install.sh | sh`
-- In interactive mode, the installer can run a guided `uv` install after explicit confirmation (`y`/`yes`), then immediately re-check `uv`.
-- In non-interactive mode (`--non-interactive`), missing `uv` is always a fatal preflight error.
-- Any unsupported platform, failed install attempt, or failed post-install re-check exits with a phase-prefixed error and a next-step message.
+## Quick start
 
-### Rendered `SKILL.md` contract
+```bash
+bash install.sh
+```
 
-- Source template: repo-local `SKILL.md.jinja`.
-- Destination artifact: `<skill_root>/<skill_name>/SKILL.md`.
-- The rendered artifact uses the official skills format: YAML frontmatter followed by markdown section headings (not legacy wrapper tags).
-- Injected values include:
-  - selected `--server-name`
-  - concrete local executable path `<skill_root>/<skill_name>/.venv/bin/ddgs`
-- Workflow-first contract: MCP-first guidance appears before references (`mcp_servers` availability check first), DDGS Quick Reference material follows under `## References`, and fallback disclosure is explicit when DDGS is unavailable or weak.
-- The DDGS Quick Reference content includes the tools table, shared parameters/defaults, `extract_content` format reference, and backend support matrix.
-- Render failures are phase-scoped (`[phase:template-render]`) and fail fast before install completion output.
+Optional flags are available (`--skill-root`, `--skill-name`, `--server-name`, `--non-interactive`), but `bash install.sh` is the shortest truthful first run.
 
-### Final MCP handoff output
+## What success looks like
 
-On successful completion only (after executable verification and template rendering), the installer prints exactly one copy-ready JSON block that you can paste into your MCP configuration:
+Treat install as successful only when you see both of these outputs:
+
+1. A final MCP handoff block with `mcpServers`, for example:
 
 ```json
 {
@@ -48,28 +42,37 @@ On successful completion only (after executable verification and template render
 }
 ```
 
-Contract details:
+2. The final completion line:
 
-- `<server_name>` is the selected `--server-name` value.
-- `command` is the resolved skill-local executable path.
-- `args` is always `["mcp"]`.
-- Any preflight/install/render failure exits before this snippet is emitted, so snippet absence is a trustworthy failure signal.
-
-### CLI contract
-
-```bash
-bash install.sh [--skill-root <path>] [--skill-name <name>] [--server-name <name>] [--non-interactive] [--help]
+```text
+[phase:install] S04 install complete. Local ddgs environment is ready.
 ```
 
-Defaults:
+If either signal is missing, treat the run as failed and follow the phase-specific error output.
 
-- `--skill-root`: `~/.agents/skills`
-- `--skill-name`: `search-with-ddgs`
-- `--server-name`: `ddgs`
+## MCP handoff
 
-Verification harness:
+Paste the emitted JSON under `mcpServers` in your MCP client configuration. Keep the generated `command` path and `args: ["mcp"]` exactly as emitted by the installer.
 
-- `bash -n install.sh`
-- `bash tests/test_install_preflight.sh` (preflight guardrails remain side-effect free)
-- `bash tests/test_install_environment.sh` (authoritative install-boundary regression harness for rendered `SKILL.md`: verifies official skills format heading order, workflow MCP-first-to-fallback sequence, DDGS Quick Reference key table/section presence, and absence of legacy XML-like markers such as `<objective>`/`<required_sequence>`)
+## Use the installed skill
 
+After install, open the generated `SKILL.md` inside the installed skill directory and follow it when a task needs current information (web search, news search, or reading a known URL).
+
+Example prompt that fits this skill:
+
+- “What changed this week in major AI model releases? Include sources.”
+
+Use the generated `SKILL.md` as the detailed behavior contract for tool order, fallback disclosure, and response requirements.
+
+## Troubleshooting
+
+- **`uv` not found**: install `uv`, then rerun `bash install.sh`.
+- **Target skill directory already exists**: choose a different `--skill-root`/`--skill-name`, or remove the existing directory before rerunning.
+- **No `mcpServers` block or no final completion line**: the install did not complete; fix the reported phase error and rerun.
+
+## Maintainer reference
+
+- `install.sh`
+- `SKILL.md.jinja`
+- `tests/test_install_preflight.sh`
+- `tests/test_install_environment.sh`
