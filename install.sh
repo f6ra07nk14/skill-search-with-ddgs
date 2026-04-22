@@ -2,6 +2,7 @@
 set -euo pipefail
 
 SCRIPT_NAME="$(basename "$0")"
+INSTALLER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEFAULT_SKILL_ROOT="~/.agents/skills"
 DEFAULT_SKILL_NAME="search-with-ddgs"
 DEFAULT_SERVER_NAME="ddgs"
@@ -13,6 +14,7 @@ NON_INTERACTIVE=0
 RESOLVED_SKILL_ROOT=""
 RESOLVED_SKILL_PATH=""
 RESOLVED_VENV_PATH=""
+RESOLVED_DDGS_PATH=""
 
 log_phase() {
   local phase="$1"
@@ -504,7 +506,104 @@ verify_ddgs_executable() {
     fatal_phase "executable-verification" "ddgs path is not executable: $ddgs_path" "Fix permissions or reinstall the local environment before retrying."
   fi
 
+  RESOLVED_DDGS_PATH="$ddgs_path"
   log_phase "executable-verification" "Verified executable: $ddgs_path"
+}
+
+render_skill_template() {
+  local phase="template-render"
+  local template_path="$INSTALLER_DIR/SKILL.md.jinja"
+  local destination_path="$RESOLVED_SKILL_PATH/SKILL.md"
+  local temp_path=""
+  local template_content=""
+  local rendered_content=""
+  local read_status
+  local mktemp_status
+  local write_status
+  local rename_status
+
+  if [[ -z "$RESOLVED_SKILL_PATH" ]]; then
+    fatal_phase "$phase" "Resolved skill path is empty; cannot render SKILL.md." "Resolve installer paths and rerun."
+  fi
+
+  if [[ -z "$RESOLVED_DDGS_PATH" ]]; then
+    fatal_phase "$phase" "Resolved ddgs executable path is unavailable." "Run executable verification before template rendering."
+  fi
+
+  log_phase "$phase" "Rendering SKILL.md from $template_path"
+
+  if [[ ! -e "$template_path" ]]; then
+    fatal_phase "$phase" "Template not found: $template_path" "Restore SKILL.md.jinja in the installer repository and rerun."
+  fi
+
+  if [[ ! -f "$template_path" ]]; then
+    fatal_phase "$phase" "Template path is not a regular file: $template_path" "Replace it with a readable SKILL.md.jinja file and rerun."
+  fi
+
+  if [[ ! -r "$template_path" ]]; then
+    fatal_phase "$phase" "Template file is not readable: $template_path" "Grant read permissions on SKILL.md.jinja and rerun."
+  fi
+
+  set +e
+  template_content="$(<"$template_path")"
+  read_status=$?
+  set -e
+
+  if [[ $read_status -ne 0 ]]; then
+    fatal_phase "$phase" "Failed to read template: $template_path" "Inspect template permissions/content and rerun."
+  fi
+
+  if [[ -z "$template_content" ]]; then
+    fatal_phase "$phase" "Template content is empty: $template_path" "Populate SKILL.md.jinja with valid skill content and rerun."
+  fi
+
+  rendered_content="$template_content"
+  rendered_content="${rendered_content//\{\{SKILL_NAME\}\}/$SKILL_NAME}"
+  rendered_content="${rendered_content//\{\{SERVER_NAME\}\}/$SERVER_NAME}"
+  rendered_content="${rendered_content//\{\{DDGS_EXECUTABLE_PATH\}\}/$RESOLVED_DDGS_PATH}"
+
+  if [[ -z "$rendered_content" ]]; then
+    fatal_phase "$phase" "Rendered SKILL.md content is empty after substitution." "Check template placeholders and rerun."
+  fi
+
+  if [[ "$rendered_content" == *"{{SKILL_NAME}}"* || "$rendered_content" == *"{{SERVER_NAME}}"* || "$rendered_content" == *"{{DDGS_EXECUTABLE_PATH}}"* ]]; then
+    fatal_phase "$phase" "Template placeholder substitution failed for one or more required variables." "Ensure SKILL.md.jinja uses {{SKILL_NAME}}, {{SERVER_NAME}}, and {{DDGS_EXECUTABLE_PATH}} exactly."
+  fi
+
+  set +e
+  temp_path="$(mktemp "$RESOLVED_SKILL_PATH/.SKILL.md.tmp.XXXXXX")"
+  mktemp_status=$?
+  set -e
+
+  if [[ $mktemp_status -ne 0 || -z "$temp_path" ]]; then
+    fatal_phase "$phase" "Failed to create temporary render file under $RESOLVED_SKILL_PATH." "Check destination directory permissions and retry."
+  fi
+
+  set +e
+  printf '%s\n' "$rendered_content" >"$temp_path"
+  write_status=$?
+  set -e
+
+  if [[ $write_status -ne 0 ]]; then
+    rm -f "$temp_path" || true
+    fatal_phase "$phase" "Failed writing rendered content to temporary file: $temp_path" "Check destination directory permissions and available disk space, then rerun."
+  fi
+
+  set +e
+  mv -f "$temp_path" "$destination_path"
+  rename_status=$?
+  set -e
+
+  if [[ $rename_status -ne 0 ]]; then
+    rm -f "$temp_path" || true
+    fatal_phase "$phase" "Failed to publish rendered SKILL.md to $destination_path." "Check destination path permissions and retry."
+  fi
+
+  if [[ ! -f "$destination_path" ]]; then
+    fatal_phase "$phase" "Render completed but destination file is missing: $destination_path" "Inspect filesystem behavior and rerun the installer."
+  fi
+
+  log_phase "$phase" "Rendered skill document: $destination_path"
 }
 
 provision_skill_environment() {
@@ -515,6 +614,7 @@ provision_skill_environment() {
   create_local_venv
   install_ddgs_package
   verify_ddgs_executable
+  render_skill_template
 }
 
 main() {
