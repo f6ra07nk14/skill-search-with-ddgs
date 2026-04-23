@@ -18,14 +18,14 @@ Use this skill when the task needs up-to-date information that is not guaranteed
 
 Always follow this order:
 
-1. Call `mcp_servers` and confirm whether `{{SERVER_NAME}}` is available.
-2. If `{{SERVER_NAME}}` is available, call `mcp_discover` for `{{SERVER_NAME}}` before the first `mcp_call` when the tool surface is not already confirmed in-session.
+1. Check the runtime MCP server inventory and confirm whether `{{SERVER_NAME}}` is available.
+2. If `{{SERVER_NAME}}` is available, inspect its exposed tool surface before the first invocation when that surface is not already confirmed in-session.
 3. Choose the appropriate `{{SERVER_NAME}}` tool for the task:
    - `extract_content` for a known URL or a selected source URL
    - `search_news` for news-specific or time-sensitive queries
    - `search_text` for general web search
-4. If the task starts from a known URL, or `extract_content` fails for that URL, use `fetch_page` on the same URL before broader fallback search.
-5. If `{{SERVER_NAME}}` is unavailable, fall back to `google_search` or `search-the-web` and explicitly state that fallback was used.
+4. If the task starts from a known URL, or `extract_content` fails for that URL, use a same-URL page-reading fallback before broader search.
+5. If `{{SERVER_NAME}}` is unavailable, fall back to alternate web search/read tooling and explicitly state that fallback was used.
 
 ## Installed Executable
 
@@ -50,7 +50,7 @@ In the final answer:
 
 Never:
 
-- assume `{{SERVER_NAME}}` exists without checking `mcp_servers`
+- assume `{{SERVER_NAME}}` exists without checking available MCP servers
 - silently fall back to another search tool
 - present current web facts from memory without searching
 
@@ -59,11 +59,11 @@ Never:
 Use this workflow whenever current web information is required.
 
 1. **Availability check first**
-   - Run `mcp_servers`.
+   - Run your MCP server inventory command.
    - If `{{SERVER_NAME}}` is missing, skip to Step 6 (fallback disclosure path).
 
 2. **Confirm tool surface**
-   - If `{{SERVER_NAME}}` is present and this session has not confirmed its tools yet, run `mcp_discover` for `{{SERVER_NAME}}`.
+   - If `{{SERVER_NAME}}` is present and this session has not confirmed its tools yet, inspect the server's tool schemas before first use.
 
 3. **Choose the initial DDGS tool**
    - Known URL, or you already selected a source URL and need page content: `extract_content`.
@@ -78,15 +78,15 @@ Use this workflow whenever current web information is required.
 5. **Rewrite once, then decide**
    - If results are weak, rewrite the query **once** and retry with the same DDGS search tool.
    - If still weak after that single rewrite:
-     - for search tasks, switch from `search_news` to `search_text` when appropriate, or fallback to `google_search` / `search-the-web`;
-     - if fallback search returns a usable source and you need page content, use `fetch_page` on that source URL.
+     - for search tasks, switch from `search_news` to `search_text` when appropriate, or fallback to another trusted search provider;
+     - if fallback search returns a usable source and you need page content, read that source URL with your runtime page-extraction tool.
 
 6. **Known URL and same-URL read path**
    - If task starts with a known URL, begin with `extract_content`.
-   - If `extract_content` fails on that URL, call `fetch_page` on the **same URL** before trying broader search fallback.
+   - If `extract_content` fails on that URL, use the runtime page-reader on the **same URL** before trying broader search fallback.
 
 7. **Fallback disclosure is mandatory**
-   - Any time you use `google_search` or `search-the-web` because DDGS was unavailable or weak after one rewrite, state this explicitly in the response and explain why.
+   - Any time you use non-DDGS tooling because DDGS was unavailable or weak after one rewrite, state this explicitly in the response and explain why.
 
 ## References
 
@@ -182,7 +182,7 @@ Add this under `mcpServers` in your MCP configuration:
 
 - Prefer `search_news` for clearly news-driven prompts ("today", "latest", "breaking"), and set `timelimit: "d"` for same-day recency when supported.
 - Prefer `search_text` when news results become noisy, repetitive, or dominated by aggregators.
-- For known URLs, keep the read path deterministic: `extract_content` first, then same-URL `fetch_page` on failure.
+- For known URLs, keep the read path deterministic: `extract_content` first, then a same-URL page-reader fallback on failure.
 - Rewrite weak DDGS queries exactly once; do not loop retries with tiny wording changes.
 - In final responses, explicitly disclose fallback usage and include source URLs.
 - Keep network hygiene explicit in diagnostics: if results are unexpectedly empty, check runtime-level `proxy` settings, SSL verification behavior, and client/tool `timeout` values in the execution environment before assuming no results exist.

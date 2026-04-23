@@ -5,4 +5,5 @@ description = "Install metadata for the search-with-ddgs skill installer."
 requires-python = ">=3.10"
 dependencies = [
   "ddgs[api,mcp]",
+  "Jinja2",
 ]
