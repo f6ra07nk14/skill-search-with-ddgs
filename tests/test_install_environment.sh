@@ -80,12 +80,8 @@ run_installer_with_hooks() {
   local home_dir="$2"
   local skill_root="$3"
   local skill_name="$4"
-  local venv_hook="$5"
-  local pip_hook="$6"
-  local sync_hook
-  shift 6
-
-  sync_hook="$venv_hook"$'\n'"$pip_hook"
+  local sync_hook="$5"
+  shift 5
 
   env -i \
     HOME="$home_dir" \
@@ -107,8 +103,7 @@ run_installer_with_hooks() {
     "$home_dir" \
     "$skill_root" \
     "$skill_name" \
-    'mkdir -p "$INSTALLER_VENV_PATH/bin"' \
-    'mkdir -p "$INSTALLER_VENV_PATH/bin" && : > "$INSTALLER_VENV_PATH/bin/ddgs" && chmod +x "$INSTALLER_VENV_PATH/bin/ddgs"' \
+    'mkdir -p "$INSTALLER_VENV_PATH/bin" && : > "$INSTALLER_DDGS_PATH" && chmod +x "$INSTALLER_DDGS_PATH"' \
     --server-name "$server_name" 2>&1)"
 
   ddgs_path="$skill_root/$skill_name/.venv/bin/ddgs"
@@ -204,8 +199,7 @@ run_installer_with_hooks() {
     "$home_dir" \
     "$skill_root" \
     "$skill_name" \
-    'mkdir -p "$INSTALLER_VENV_PATH/bin"' \
-    'mkdir -p "$INSTALLER_VENV_PATH/bin" && : > "$INSTALLER_VENV_PATH/bin/ddgs" && chmod +x "$INSTALLER_VENV_PATH/bin/ddgs"' >/dev/null
+    'mkdir -p "$INSTALLER_VENV_PATH/bin" && : > "$INSTALLER_DDGS_PATH" && chmod +x "$INSTALLER_DDGS_PATH"' >/dev/null
 
   marker="$skill_root/$skill_name/marker.txt"
   printf 'keep' >"$marker"
@@ -216,8 +210,7 @@ run_installer_with_hooks() {
     "$home_dir" \
     "$skill_root" \
     "$skill_name" \
-    'mkdir -p "$INSTALLER_VENV_PATH/bin"' \
-    'mkdir -p "$INSTALLER_VENV_PATH/bin" && : > "$INSTALLER_VENV_PATH/bin/ddgs" && chmod +x "$INSTALLER_VENV_PATH/bin/ddgs"' 2>&1)"
+    'mkdir -p "$INSTALLER_VENV_PATH/bin" && : > "$INSTALLER_DDGS_PATH" && chmod +x "$INSTALLER_DDGS_PATH"' 2>&1)"
   status=$?
   set -e
 
@@ -242,8 +235,7 @@ run_installer_with_hooks() {
     "$home_dir" \
     "$skill_root" \
     "$skill_name" \
-    'mkdir -p "$INSTALLER_VENV_PATH/bin"' \
-    'exit 23' 2>&1)"
+    'mkdir -p "$INSTALLER_VENV_PATH/bin" && exit 23' 2>&1)"
   status=$?
   set -e
 
@@ -270,8 +262,7 @@ run_installer_with_hooks() {
     "$home_dir" \
     "$skill_root" \
     "$skill_name" \
-    'mkdir -p "$INSTALLER_VENV_PATH/bin"' \
-    'true' 2>&1)"
+    'mkdir -p "$INSTALLER_VENV_PATH/bin" && true' 2>&1)"
   status=$?
   set -e
 
@@ -295,8 +286,7 @@ run_installer_with_hooks() {
     "$home_dir" \
     "$skill_root" \
     "$skill_name" \
-    'mkdir -p "$INSTALLER_VENV_PATH/bin"' \
-    'mkdir -p "$INSTALLER_VENV_PATH/bin" && : > "$INSTALLER_VENV_PATH/bin/ddgs" && chmod 0644 "$INSTALLER_VENV_PATH/bin/ddgs"' 2>&1)"
+    'mkdir -p "$INSTALLER_VENV_PATH/bin" && : > "$INSTALLER_DDGS_PATH" && chmod 0644 "$INSTALLER_DDGS_PATH"' 2>&1)"
   status=$?
   set -e
 
@@ -323,8 +313,7 @@ run_installer_with_hooks() {
     "$home_dir" \
     "$skill_root" \
     "$skill_name" \
-    'mkdir -p "$INSTALLER_VENV_PATH/bin"' \
-    'mkdir -p "$INSTALLER_VENV_PATH/bin" && : > "$INSTALLER_VENV_PATH/bin/ddgs" && chmod +x "$INSTALLER_VENV_PATH/bin/ddgs"' 2>&1)"
+    'mkdir -p "$INSTALLER_VENV_PATH/bin" && : > "$INSTALLER_DDGS_PATH" && chmod +x "$INSTALLER_DDGS_PATH"' 2>&1)"
   status=$?
   set -e
 
@@ -353,8 +342,7 @@ run_installer_with_hooks() {
     "$home_dir" \
     "$skill_root" \
     "$skill_name" \
-    'mkdir -p "$INSTALLER_VENV_PATH/bin"' \
-    'mkdir -p "$INSTALLER_VENV_PATH/bin" && : > "$INSTALLER_VENV_PATH/bin/ddgs" && chmod +x "$INSTALLER_VENV_PATH/bin/ddgs"' 2>&1)"
+    'mkdir -p "$INSTALLER_VENV_PATH/bin" && : > "$INSTALLER_DDGS_PATH" && chmod +x "$INSTALLER_DDGS_PATH"' 2>&1)"
   status=$?
   set -e
 
@@ -382,8 +370,7 @@ run_installer_with_hooks() {
     "$home_dir" \
     "$skill_root" \
     "$skill_name" \
-    'mkdir -p "$INSTALLER_VENV_PATH/bin"' \
-    'mkdir -p "$INSTALLER_VENV_PATH/bin" && : > "$INSTALLER_VENV_PATH/bin/ddgs" && chmod +x "$INSTALLER_VENV_PATH/bin/ddgs"' \
+    'mkdir -p "$INSTALLER_VENV_PATH/bin" && : > "$INSTALLER_DDGS_PATH" && chmod +x "$INSTALLER_DDGS_PATH"' \
     --server-name "$server_name" 2>&1)"
 
   ddgs_path="$skill_root/$skill_name/.venv/bin/ddgs"

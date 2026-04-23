@@ -75,6 +75,16 @@ assert_no_mutation() {
   [[ ! -e "$root/$skill_name" ]] || fail "preflight should not create skill directory: $root/$skill_name"
 }
 
+assert_preflight_abort() {
+  local output="$1"
+  local context="$2"
+
+  assert_not_contains "$output" "[phase:metadata-copy]" "$context should stop before metadata copy"
+  assert_not_contains "$output" "[phase:project-sync]" "$context should stop before project sync"
+  assert_not_contains "$output" '"mcpServers": {' "$context should not emit MCP handoff snippet"
+  assert_not_contains "$output" "[phase:install] S04 install complete. Local ddgs environment is ready." "$context should not emit completion line"
+}
+
 # 1) defaults resolve in non-interactive mode and complete deterministic install
 {
   fakebin="$(make_fake_uv_bin)"
@@ -170,6 +180,7 @@ assert_no_mutation() {
   [[ $status -ne 0 ]] || fail "unsupported platform should exit non-zero"
   assert_contains "$output" "[phase:platform] ERROR: Unsupported platform: solaris." "unsupported platform message"
   assert_no_mutation "$target_root" "candidate"
+  assert_preflight_abort "$output" "unsupported platform"
   pass "unsupported platform is rejected before mutation"
 }
 
@@ -189,6 +200,7 @@ assert_no_mutation() {
 
   [[ $status -ne 0 ]] || fail "empty platform probe should exit non-zero"
   assert_contains "$output" "Could not determine platform from uname probe." "empty platform probe message"
+  assert_preflight_abort "$output" "empty platform probe"
   pass "empty platform probe fails preflight"
 }
 
@@ -222,6 +234,7 @@ assert_no_mutation() {
   assert_contains "$output" "[phase:uv] INSTALL:   wget -qO- https://astral.sh/uv/install.sh | sh" "uv guidance wget"
   assert_contains "$output" "[phase:uv] ERROR: uv installation declined." "uv decline message"
   assert_no_mutation "$target_root" "candidate"
+  assert_preflight_abort "$output" "guided uv decline"
   pass "missing uv guidance + decline path is explicit and side-effect free"
 }
 
@@ -242,7 +255,7 @@ assert_no_mutation() {
   [[ $status -ne 0 ]] || fail "malformed uv probe output should exit non-zero"
   assert_contains "$output" "uv not found in PATH." "malformed uv output treated as unavailable"
   assert_not_contains "$output" "Skill root [" "malformed uv probe path should remain prompt-free in non-interactive mode"
-  assert_not_contains "$output" '"mcpServers": {' "malformed uv probe path should not emit MCP handoff"
+  assert_preflight_abort "$output" "malformed uv probe"
   pass "malformed uv probe output does not bypass preflight"
 }
 
@@ -263,7 +276,7 @@ assert_no_mutation() {
   assert_contains "$output" "[phase:uv] NEXT: Install uv manually, then rerun with --non-interactive." "missing uv non-interactive next action"
   assert_not_contains "$output" "Run guided uv installer now?" "missing uv non-interactive should not prompt for guided install"
   assert_not_contains "$output" "Skill root [" "missing uv non-interactive should not prompt for config"
-  assert_not_contains "$output" '"mcpServers": {' "missing uv non-interactive should not emit MCP handoff"
+  assert_preflight_abort "$output" "missing uv non-interactive"
   assert_occurrence_count "$output" '"mcpServers": {' 0 "missing uv non-interactive should emit zero handoff snippets"
   pass "missing uv non-interactive path is prompt-free and snippet-free"
 }
