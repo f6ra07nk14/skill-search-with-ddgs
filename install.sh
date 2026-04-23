@@ -43,8 +43,8 @@ Usage: $SCRIPT_NAME [options]
 
 Installer entrypoint for the search-with-ddgs skill.
 This S02 scope resolves installer config, runs prerequisite checks,
-creates the target skill directory, provisions a local .venv,
-installs ddgs[api,mcp], and verifies the local ddgs executable.
+creates the target skill directory, copies project metadata,
+runs target-local 'uv sync --directory', and verifies the local ddgs executable.
 
 Options:
   --skill-root <path>      Skill install root (default: $DEFAULT_SKILL_ROOT)
@@ -499,72 +499,56 @@ copy_project_metadata() {
   log_phase "$phase" "Metadata copy complete; environment provisioning may proceed."
 }
 
-run_uv_venv() {
-  local venv_path="$1"
+run_uv_sync() {
+  local project_dir="$1"
 
-  if [[ -n "${INSTALLER_UV_VENV_CMD:-}" ]]; then
-    INSTALLER_VENV_PATH="$venv_path" bash -c "$INSTALLER_UV_VENV_CMD"
+  if [[ -n "${INSTALLER_UV_SYNC_CMD:-}" ]]; then
+    INSTALLER_PROJECT_DIR="$project_dir" \
+    INSTALLER_SKILL_PATH="$project_dir" \
+    INSTALLER_VENV_PATH="$project_dir/.venv" \
+    INSTALLER_DDGS_PATH="$project_dir/.venv/bin/ddgs" \
+    bash -c "$INSTALLER_UV_SYNC_CMD"
   else
-    uv venv "$venv_path"
+    uv sync --directory "$project_dir"
   fi
 }
 
-create_local_venv() {
-  local venv_status
+sync_project_environment() {
+  local phase="project-sync"
+  local sync_status
+  local target_pyproject="$RESOLVED_SKILL_PATH/pyproject.toml"
+  local target_lock="$RESOLVED_SKILL_PATH/uv.lock"
 
-  if [[ -z "$RESOLVED_VENV_PATH" ]]; then
-    fatal_phase "venv" "Resolved venv path is empty." "Check --skill-root/--skill-name values and rerun."
+  if [[ -z "$RESOLVED_SKILL_PATH" ]]; then
+    fatal_phase "$phase" "Resolved skill path is empty; cannot sync project environment." "Resolve installer paths before provisioning."
   fi
 
-  log_phase "venv" "Creating local environment at $RESOLVED_VENV_PATH"
+  if [[ ! -f "$target_pyproject" ]]; then
+    fatal_phase "$phase" "Required metadata is missing at target: $target_pyproject" "Recreate the target directory from repo metadata and rerun."
+  fi
+
+  if [[ ! -s "$target_pyproject" ]]; then
+    fatal_phase "$phase" "Required metadata is empty at target: $target_pyproject" "Repair target pyproject.toml and rerun."
+  fi
+
+  log_phase "$phase" "Running uv sync --directory '$RESOLVED_SKILL_PATH'"
 
   set +e
-  run_uv_venv "$RESOLVED_VENV_PATH"
-  venv_status=$?
+  run_uv_sync "$RESOLVED_SKILL_PATH"
+  sync_status=$?
   set -e
 
-  if [[ $venv_status -ne 0 ]]; then
-    fatal_phase "venv" "uv venv failed for '$RESOLVED_VENV_PATH' with exit code $venv_status." "Inspect uv output, then rerun after resolving the failure."
+  if [[ $sync_status -ne 0 ]]; then
+    fatal_phase "$phase" "uv sync failed for '$RESOLVED_SKILL_PATH' with exit code $sync_status." "Inspect sync output and target metadata, then rerun."
   fi
 
-  if [[ ! -d "$RESOLVED_VENV_PATH" ]]; then
-    fatal_phase "venv" "uv venv reported success but expected path is missing: $RESOLVED_VENV_PATH" "Inspect uv output and verify the target path before retrying."
-  fi
-
-  log_phase "venv" "Local environment ready: $RESOLVED_VENV_PATH"
-}
-
-run_uv_pip_install() {
-  local venv_path="$1"
-  local package_spec="$2"
-
-  if [[ -n "${INSTALLER_UV_PIP_INSTALL_CMD:-}" ]]; then
-    INSTALLER_VENV_PATH="$venv_path" INSTALLER_PACKAGE_SPEC="$package_spec" bash -c "$INSTALLER_UV_PIP_INSTALL_CMD"
+  if [[ -f "$target_lock" ]]; then
+    log_phase "$phase" "Retained target lockfile: $target_lock"
   else
-    uv pip install --python "$venv_path/bin/python" "$package_spec"
-  fi
-}
-
-install_ddgs_package() {
-  local package_status
-  local package_spec="ddgs[api,mcp]"
-
-  if [[ -z "$RESOLVED_VENV_PATH" ]]; then
-    fatal_phase "package-install" "Resolved venv path is empty; cannot install packages." "Resolve installer paths and rerun."
+    log_phase "$phase" "No target lockfile found after sync; continuing with executable verification."
   fi
 
-  log_phase "package-install" "Installing $package_spec into $RESOLVED_VENV_PATH"
-
-  set +e
-  run_uv_pip_install "$RESOLVED_VENV_PATH" "$package_spec"
-  package_status=$?
-  set -e
-
-  if [[ $package_status -ne 0 ]]; then
-    fatal_phase "package-install" "uv pip install failed for '$RESOLVED_VENV_PATH' with exit code $package_status." "Inspect uv output in the local environment and rerun when resolved."
-  fi
-
-  log_phase "package-install" "Package installation completed in $RESOLVED_VENV_PATH"
+  log_phase "$phase" "Project sync complete for $RESOLVED_SKILL_PATH"
 }
 
 verify_ddgs_executable() {
@@ -578,7 +562,7 @@ verify_ddgs_executable() {
   log_phase "executable-verification" "Checking executable at $ddgs_path"
 
   if [[ ! -e "$ddgs_path" ]]; then
-    fatal_phase "executable-verification" "Missing ddgs executable after install: $ddgs_path" "Inspect package installation output and rerun in a clean target directory."
+    fatal_phase "executable-verification" "Missing ddgs executable after install: $ddgs_path" "Inspect project-sync output and rerun in a clean target directory."
   fi
 
   if [[ ! -x "$ddgs_path" ]]; then
@@ -728,8 +712,7 @@ provision_skill_environment() {
   validate_destination_paths
   create_skill_directory
   copy_project_metadata
-  create_local_venv
-  install_ddgs_package
+  sync_project_environment
   verify_ddgs_executable
   render_skill_template
 }

@@ -82,13 +82,15 @@ run_installer_with_hooks() {
   local skill_name="$4"
   local venv_hook="$5"
   local pip_hook="$6"
+  local sync_hook
   shift 6
+
+  sync_hook="$venv_hook"$'\n'"$pip_hook"
 
   env -i \
     HOME="$home_dir" \
     PATH="$fakebin:/usr/bin:/bin" \
-    INSTALLER_UV_VENV_CMD="$venv_hook" \
-    INSTALLER_UV_PIP_INSTALL_CMD="$pip_hook" \
+    INSTALLER_UV_SYNC_CMD="$sync_hook" \
     bash "$INSTALLER" --non-interactive --skill-root "$skill_root" --skill-name "$skill_name" "$@"
 }
 
@@ -173,7 +175,7 @@ run_installer_with_hooks() {
   assert_not_contains "$skill_content" "{{SKILL_NAME}}" "rendered SKILL.md should not retain SKILL_NAME placeholder"
   assert_not_contains "$skill_content" "{{SERVER_NAME}}" "rendered SKILL.md should not retain SERVER_NAME placeholder"
   assert_not_contains "$skill_content" "{{DDGS_EXECUTABLE_PATH}}" "rendered SKILL.md should not retain executable-path placeholder"
-  assert_contains "$output" "[phase:package-install] Installing ddgs[api,mcp]" "fresh install package phase"
+  assert_contains "$output" "[phase:project-sync] Running uv sync --directory" "fresh install project-sync phase"
   assert_contains "$output" "[phase:executable-verification] Verified executable:" "fresh install executable verification"
   assert_contains "$output" "[phase:template-render] Rendered skill document:" "fresh install template render"
   assert_contains "$output" "[phase:install] Final MCP handoff snippet (copy under mcpServers in your MCP config):" "fresh install handoff log"
@@ -227,7 +229,7 @@ run_installer_with_hooks() {
   pass "same-name conflict is refused before mutation"
 }
 
-# 3) package-install non-zero exits with package-install phase and leaves venv for inspection
+# 3) project-sync non-zero exits with project-sync phase and leaves target directory for inspection
 {
   fakebin="$(make_fake_uv_bin)"
   home_dir="$(mktemp -d)"
@@ -245,13 +247,14 @@ run_installer_with_hooks() {
   status=$?
   set -e
 
-  [[ $status -ne 0 ]] || fail "package-install failure should exit non-zero"
-  assert_contains "$output" "[phase:package-install] ERROR: uv pip install failed" "package failure phase"
-  assert_contains "$output" "exit code 23" "package failure exit code surfaced"
-  assert_not_contains "$output" '"mcpServers": {' "package failure should not emit MCP handoff"
-  assert_not_contains "$output" "Skill root [" "package failure should remain prompt-free in non-interactive mode"
-  [[ -d "$skill_root/$skill_name/.venv" ]] || fail "venv should remain for inspection after package failure"
-  pass "package-install failures are surfaced with phase-prefixed diagnostics"
+  [[ $status -ne 0 ]] || fail "project-sync failure should exit non-zero"
+  assert_contains "$output" "[phase:project-sync] ERROR: uv sync failed" "project-sync failure phase"
+  assert_contains "$output" "exit code 23" "project-sync failure exit code surfaced"
+  assert_not_contains "$output" '"mcpServers": {' "project-sync failure should not emit MCP handoff"
+  assert_not_contains "$output" "[phase:install] S04 install complete. Local ddgs environment is ready." "project-sync failure should not emit completion line"
+  assert_not_contains "$output" "Skill root [" "project-sync failure should remain prompt-free in non-interactive mode"
+  [[ -d "$skill_root/$skill_name" ]] || fail "target skill directory should remain for inspection after project-sync failure"
+  pass "project-sync failures are surfaced with phase-prefixed diagnostics"
 }
 
 # 4) missing ddgs after install hook reports executable-verification failure

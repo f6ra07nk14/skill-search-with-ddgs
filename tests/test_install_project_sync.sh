@@ -64,15 +64,13 @@ run_installer_with_hooks() {
   local home_dir="$2"
   local skill_root="$3"
   local skill_name="$4"
-  local venv_hook="$5"
-  local pip_hook="$6"
-  shift 6
+  local sync_hook="$5"
+  shift 5
 
   env -i \
     HOME="$home_dir" \
     PATH="$fakebin:/usr/bin:/bin" \
-    INSTALLER_UV_VENV_CMD="$venv_hook" \
-    INSTALLER_UV_PIP_INSTALL_CMD="$pip_hook" \
+    INSTALLER_UV_SYNC_CMD="$sync_hook" \
     bash "$INSTALLER" --non-interactive --skill-root "$skill_root" --skill-name "$skill_name" "$@"
 }
 
@@ -88,8 +86,7 @@ run_installer_with_hooks() {
     "$home_dir" \
     "$skill_root" \
     "$skill_name" \
-    'target_dir="${INSTALLER_VENV_PATH%/.venv}"; [[ -f "$target_dir/pyproject.toml" ]] || { echo "pyproject missing before venv" >&2; exit 71; }; mkdir -p "$INSTALLER_VENV_PATH/bin"' \
-    'mkdir -p "$INSTALLER_VENV_PATH/bin" && : > "$INSTALLER_VENV_PATH/bin/ddgs" && chmod +x "$INSTALLER_VENV_PATH/bin/ddgs"' 2>&1)"
+    '[[ -f "$INSTALLER_PROJECT_DIR/pyproject.toml" ]] || { echo "pyproject missing before sync" >&2; exit 71; }; mkdir -p "$INSTALLER_VENV_PATH/bin" && : > "$INSTALLER_DDGS_PATH" && chmod +x "$INSTALLER_DDGS_PATH" && if [[ ! -f "$INSTALLER_PROJECT_DIR/uv.lock" ]]; then : > "$INSTALLER_PROJECT_DIR/uv.lock"; fi' 2>&1)"
 
   target_dir="$skill_root/$skill_name"
   target_pyproject="$target_dir/pyproject.toml"
@@ -99,7 +96,7 @@ run_installer_with_hooks() {
   assert_contains "$output" "[phase:metadata-copy] Copying project metadata into $target_dir" "metadata-copy phase start"
   assert_contains "$output" "[phase:metadata-copy] Copied required metadata: $target_pyproject" "metadata-copy copied pyproject"
   assert_contains "$output" "[phase:metadata-copy] Metadata copy complete; environment provisioning may proceed." "metadata-copy completion"
-  assert_line_order "$output" "[phase:metadata-copy] Metadata copy complete; environment provisioning may proceed." "[phase:venv] Creating local environment at $target_dir/.venv" "metadata-copy should finish before venv creation"
+  assert_line_order "$output" "[phase:metadata-copy] Metadata copy complete; environment provisioning may proceed." "[phase:project-sync] Running uv sync --directory '$target_dir'" "metadata-copy should finish before project sync"
   pass "metadata-copy boundary executes before environment provisioning"
 }
 
@@ -121,17 +118,17 @@ run_installer_with_hooks() {
     "$home_dir" \
     "$skill_root" \
     "$skill_name" \
-    'mkdir -p "$INSTALLER_VENV_PATH/bin"' \
-    'mkdir -p "$INSTALLER_VENV_PATH/bin" && : > "$INSTALLER_VENV_PATH/bin/ddgs" && chmod +x "$INSTALLER_VENV_PATH/bin/ddgs"' 2>&1)"
+    'mkdir -p "$INSTALLER_VENV_PATH/bin" && : > "$INSTALLER_DDGS_PATH" && chmod +x "$INSTALLER_DDGS_PATH" && if [[ ! -f "$INSTALLER_PROJECT_DIR/uv.lock" ]]; then : > "$INSTALLER_PROJECT_DIR/uv.lock"; fi' 2>&1)"
 
   if [[ -n "$backup_lock" && -e "$backup_lock" ]]; then
     mv "$backup_lock" "$SOURCE_LOCK"
   fi
 
   target_lock="$skill_root/$skill_name/uv.lock"
-  [[ ! -e "$target_lock" ]] || fail "installer should not create target uv.lock when source lockfile is absent"
+  [[ -f "$target_lock" ]] || fail "installer should retain target uv.lock after sync when source lockfile is absent"
   assert_contains "$output" "[phase:metadata-copy] Optional lockfile not found at $SOURCE_LOCK; skipping lockfile copy." "absent lockfile should be logged"
-  pass "missing source uv.lock does not fail metadata-copy phase"
+  assert_contains "$output" "[phase:project-sync] Retained target lockfile: $target_lock" "generated target lockfile should be reported"
+  pass "missing source uv.lock still yields retained target lockfile after sync"
 }
 
 # 3) present source uv.lock is copied into the target directory
@@ -154,8 +151,7 @@ run_installer_with_hooks() {
     "$home_dir" \
     "$skill_root" \
     "$skill_name" \
-    'mkdir -p "$INSTALLER_VENV_PATH/bin"' \
-    'mkdir -p "$INSTALLER_VENV_PATH/bin" && : > "$INSTALLER_VENV_PATH/bin/ddgs" && chmod +x "$INSTALLER_VENV_PATH/bin/ddgs"' 2>&1)"
+    'mkdir -p "$INSTALLER_VENV_PATH/bin" && : > "$INSTALLER_DDGS_PATH" && chmod +x "$INSTALLER_DDGS_PATH" && if [[ ! -f "$INSTALLER_PROJECT_DIR/uv.lock" ]]; then : > "$INSTALLER_PROJECT_DIR/uv.lock"; fi' 2>&1)"
 
   if [[ -n "$backup_lock" && -e "$backup_lock" ]]; then
     rm -f "$SOURCE_LOCK"
@@ -188,8 +184,7 @@ run_installer_with_hooks() {
     "$home_dir" \
     "$skill_root" \
     "$skill_name" \
-    'mkdir -p "$INSTALLER_VENV_PATH/bin"' \
-    'mkdir -p "$INSTALLER_VENV_PATH/bin" && : > "$INSTALLER_VENV_PATH/bin/ddgs" && chmod +x "$INSTALLER_VENV_PATH/bin/ddgs"' 2>&1)"
+    'mkdir -p "$INSTALLER_VENV_PATH/bin" && : > "$INSTALLER_DDGS_PATH" && chmod +x "$INSTALLER_DDGS_PATH" && if [[ ! -f "$INSTALLER_PROJECT_DIR/uv.lock" ]]; then : > "$INSTALLER_PROJECT_DIR/uv.lock"; fi' 2>&1)"
   status=$?
   set -e
 
@@ -197,8 +192,7 @@ run_installer_with_hooks() {
 
   [[ $status -ne 0 ]] || fail "missing pyproject.toml should fail install"
   assert_contains "$output" "[phase:metadata-copy] ERROR: Required metadata file is missing: $SOURCE_PYPROJECT" "missing pyproject phase error"
-  assert_not_contains "$output" "[phase:venv]" "missing pyproject should stop before venv creation"
-  assert_not_contains "$output" "[phase:package-install]" "missing pyproject should stop before package install"
+  assert_not_contains "$output" "[phase:project-sync]" "missing pyproject should stop before project sync"
   assert_not_contains "$output" "[phase:template-render]" "missing pyproject should stop before template render"
   assert_not_contains "$output" '"mcpServers": {' "missing pyproject should stop before handoff snippet"
   pass "missing pyproject fails fast in metadata-copy phase"
@@ -219,8 +213,7 @@ run_installer_with_hooks() {
     "$home_dir" \
     "$skill_root" \
     "$skill_name" \
-    'mkdir -p "$INSTALLER_VENV_PATH/bin"' \
-    'mkdir -p "$INSTALLER_VENV_PATH/bin" && : > "$INSTALLER_VENV_PATH/bin/ddgs" && chmod +x "$INSTALLER_VENV_PATH/bin/ddgs"' 2>&1)"
+    'mkdir -p "$INSTALLER_VENV_PATH/bin" && : > "$INSTALLER_DDGS_PATH" && chmod +x "$INSTALLER_DDGS_PATH" && if [[ ! -f "$INSTALLER_PROJECT_DIR/uv.lock" ]]; then : > "$INSTALLER_PROJECT_DIR/uv.lock"; fi' 2>&1)"
   status=$?
   set -e
 
@@ -228,7 +221,7 @@ run_installer_with_hooks() {
 
   [[ $status -ne 0 ]] || fail "unreadable pyproject.toml should fail install"
   assert_contains "$output" "[phase:metadata-copy] ERROR: Required metadata file is not readable: $SOURCE_PYPROJECT" "unreadable pyproject phase error"
-  assert_not_contains "$output" "[phase:venv]" "unreadable pyproject should stop before venv creation"
+  assert_not_contains "$output" "[phase:project-sync]" "unreadable pyproject should stop before project sync"
   assert_not_contains "$output" '"mcpServers": {' "unreadable pyproject should stop before handoff snippet"
   pass "unreadable pyproject is rejected before provisioning"
 }
@@ -255,8 +248,7 @@ run_installer_with_hooks() {
     "$home_dir" \
     "$skill_root" \
     "$skill_name" \
-    'mkdir -p "$INSTALLER_VENV_PATH/bin"' \
-    'mkdir -p "$INSTALLER_VENV_PATH/bin" && : > "$INSTALLER_VENV_PATH/bin/ddgs" && chmod +x "$INSTALLER_VENV_PATH/bin/ddgs"' 2>&1)"
+    'mkdir -p "$INSTALLER_VENV_PATH/bin" && : > "$INSTALLER_DDGS_PATH" && chmod +x "$INSTALLER_DDGS_PATH" && if [[ ! -f "$INSTALLER_PROJECT_DIR/uv.lock" ]]; then : > "$INSTALLER_PROJECT_DIR/uv.lock"; fi' 2>&1)"
   status=$?
   set -e
 
@@ -270,7 +262,7 @@ run_installer_with_hooks() {
 
   [[ $status -ne 0 ]] || fail "unreadable source uv.lock should fail install"
   assert_contains "$output" "[phase:metadata-copy] ERROR: Optional lockfile is not readable: $SOURCE_LOCK" "unreadable uv.lock phase error"
-  assert_not_contains "$output" "[phase:venv]" "unreadable uv.lock should stop before venv creation"
+  assert_not_contains "$output" "[phase:project-sync]" "unreadable uv.lock should stop before project sync"
   assert_not_contains "$output" '"mcpServers": {' "unreadable uv.lock should stop before handoff snippet"
   pass "unreadable source uv.lock is rejected before provisioning"
 }
@@ -287,8 +279,7 @@ run_installer_with_hooks() {
     "$home_dir" \
     "$skill_root" \
     "$skill_name" \
-    'mkdir -p "$INSTALLER_VENV_PATH/bin"' \
-    'mkdir -p "$INSTALLER_VENV_PATH/bin" && : > "$INSTALLER_VENV_PATH/bin/ddgs" && chmod +x "$INSTALLER_VENV_PATH/bin/ddgs"' 2>&1)"
+    'mkdir -p "$INSTALLER_VENV_PATH/bin" && : > "$INSTALLER_DDGS_PATH" && chmod +x "$INSTALLER_DDGS_PATH" && if [[ ! -f "$INSTALLER_PROJECT_DIR/uv.lock" ]]; then : > "$INSTALLER_PROJECT_DIR/uv.lock"; fi' 2>&1)"
 
   target_pyproject="$skill_root/$skill_name/pyproject.toml"
   [[ -f "$target_pyproject" ]] || fail "metadata-copy should handle unusual valid target paths"

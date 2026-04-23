@@ -64,8 +64,7 @@ run_installer() {
   env -i \
     HOME="$home_dir" \
     PATH="$fakebin:/usr/bin:/bin" \
-    INSTALLER_UV_VENV_CMD='mkdir -p "$INSTALLER_VENV_PATH"' \
-    INSTALLER_UV_PIP_INSTALL_CMD='mkdir -p "$INSTALLER_VENV_PATH/bin" && : > "$INSTALLER_VENV_PATH/bin/ddgs" && chmod +x "$INSTALLER_VENV_PATH/bin/ddgs"' \
+    INSTALLER_UV_SYNC_CMD='mkdir -p "$INSTALLER_VENV_PATH/bin" && : > "$INSTALLER_DDGS_PATH" && chmod +x "$INSTALLER_DDGS_PATH" && : > "$INSTALLER_PROJECT_DIR/uv.lock"' \
     bash "$INSTALLER" "$@"
 }
 
@@ -114,8 +113,7 @@ assert_no_mutation() {
     HOME="$home_dir" \
     PATH="$fakebin:/usr/bin:/bin" \
     INSTALLER_FORCE_INTERACTIVE=1 \
-    INSTALLER_UV_VENV_CMD='mkdir -p "$INSTALLER_VENV_PATH"' \
-    INSTALLER_UV_PIP_INSTALL_CMD='mkdir -p "$INSTALLER_VENV_PATH/bin" && : > "$INSTALLER_VENV_PATH/bin/ddgs" && chmod +x "$INSTALLER_VENV_PATH/bin/ddgs"' \
+    INSTALLER_UV_SYNC_CMD='mkdir -p "$INSTALLER_VENV_PATH/bin" && : > "$INSTALLER_DDGS_PATH" && chmod +x "$INSTALLER_DDGS_PATH" && : > "$INSTALLER_PROJECT_DIR/uv.lock"' \
     bash "$INSTALLER" 2>&1)"
   assert_contains "$output" "[phase:config] Interactive mode: collecting installer settings." "prompt: interactive mode"
   assert_contains "$output" "skill_root='~/.agents/skills'" "prompt: default root"
