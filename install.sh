@@ -575,15 +575,17 @@ verify_ddgs_executable() {
 
 render_skill_template() {
   local phase="template-render"
-  local template_path="$INSTALLER_DIR/SKILL.md.jinja"
+  local source_renderer="$INSTALLER_DIR/render_skill.py"
+  local source_template="$INSTALLER_DIR/SKILL.md.jinja"
   local destination_path="$RESOLVED_SKILL_PATH/SKILL.md"
-  local temp_path=""
-  local template_content=""
-  local rendered_content=""
-  local read_status
-  local mktemp_status
-  local write_status
-  local rename_status
+  local stage_dir="$RESOLVED_SKILL_PATH/.template-render-stage"
+  local staged_renderer="$stage_dir/render_skill.py"
+  local staged_template="$stage_dir/SKILL.md.jinja"
+  local venv_python="$RESOLVED_VENV_PATH/bin/python"
+  local stage_status
+  local render_status
+  local cleanup_status
+  local render_output=""
 
   if [[ -z "$RESOLVED_SKILL_PATH" ]]; then
     fatal_phase "$phase" "Resolved skill path is empty; cannot render SKILL.md." "Resolve installer paths and rerun."
@@ -593,79 +595,111 @@ render_skill_template() {
     fatal_phase "$phase" "Resolved ddgs executable path is unavailable." "Run executable verification before template rendering."
   fi
 
-  log_phase "$phase" "Rendering SKILL.md from $template_path"
-
-  if [[ ! -e "$template_path" ]]; then
-    fatal_phase "$phase" "Template not found: $template_path" "Restore SKILL.md.jinja in the installer repository and rerun."
+  if [[ -z "$RESOLVED_VENV_PATH" ]]; then
+    fatal_phase "$phase" "Resolved venv path is empty; cannot execute target-local renderer." "Resolve installer paths and rerun."
   fi
 
-  if [[ ! -f "$template_path" ]]; then
-    fatal_phase "$phase" "Template path is not a regular file: $template_path" "Replace it with a readable SKILL.md.jinja file and rerun."
+  if [[ ! -e "$source_renderer" ]]; then
+    fatal_phase "$phase" "Render helper not found: $source_renderer" "Restore render_skill.py in the installer repository and rerun."
   fi
 
-  if [[ ! -r "$template_path" ]]; then
-    fatal_phase "$phase" "Template file is not readable: $template_path" "Grant read permissions on SKILL.md.jinja and rerun."
+  if [[ ! -f "$source_renderer" ]]; then
+    fatal_phase "$phase" "Render helper path is not a regular file: $source_renderer" "Replace it with a readable render_skill.py file and rerun."
+  fi
+
+  if [[ ! -r "$source_renderer" ]]; then
+    fatal_phase "$phase" "Render helper file is not readable: $source_renderer" "Grant read permissions on render_skill.py and rerun."
+  fi
+
+  if [[ ! -e "$source_template" ]]; then
+    fatal_phase "$phase" "Template not found: $source_template" "Restore SKILL.md.jinja in the installer repository and rerun."
+  fi
+
+  if [[ ! -f "$source_template" ]]; then
+    fatal_phase "$phase" "Template path is not a regular file: $source_template" "Replace it with a readable SKILL.md.jinja file and rerun."
+  fi
+
+  if [[ ! -r "$source_template" ]]; then
+    fatal_phase "$phase" "Template file is not readable: $source_template" "Grant read permissions on SKILL.md.jinja and rerun."
+  fi
+
+  if [[ ! -x "$venv_python" ]]; then
+    fatal_phase "$phase" "Target-local python executable is missing or not executable: $venv_python" "Ensure project sync provisions .venv/bin/python before template rendering."
+  fi
+
+  log_phase "$phase" "Staging render helper and template into $stage_dir"
+
+  set +e
+  mkdir -p "$stage_dir"
+  stage_status=$?
+  set -e
+
+  if [[ $stage_status -ne 0 ]]; then
+    fatal_phase "$phase" "Failed to create staging directory under $RESOLVED_SKILL_PATH." "Check destination directory permissions and retry."
   fi
 
   set +e
-  template_content="$(<"$template_path")"
-  read_status=$?
+  cp "$source_renderer" "$staged_renderer"
+  stage_status=$?
   set -e
 
-  if [[ $read_status -ne 0 ]]; then
-    fatal_phase "$phase" "Failed to read template: $template_path" "Inspect template permissions/content and rerun."
-  fi
-
-  if [[ -z "$template_content" ]]; then
-    fatal_phase "$phase" "Template content is empty: $template_path" "Populate SKILL.md.jinja with valid skill content and rerun."
-  fi
-
-  rendered_content="$template_content"
-  rendered_content="${rendered_content//\{\{SKILL_NAME\}\}/$SKILL_NAME}"
-  rendered_content="${rendered_content//\{\{SERVER_NAME\}\}/$SERVER_NAME}"
-  rendered_content="${rendered_content//\{\{DDGS_EXECUTABLE_PATH\}\}/$RESOLVED_DDGS_PATH}"
-
-  if [[ -z "$rendered_content" ]]; then
-    fatal_phase "$phase" "Rendered SKILL.md content is empty after substitution." "Check template placeholders and rerun."
-  fi
-
-  if [[ "$rendered_content" == *"{{SKILL_NAME}}"* || "$rendered_content" == *"{{SERVER_NAME}}"* || "$rendered_content" == *"{{DDGS_EXECUTABLE_PATH}}"* ]]; then
-    fatal_phase "$phase" "Template placeholder substitution failed for one or more required variables." "Ensure SKILL.md.jinja uses {{SKILL_NAME}}, {{SERVER_NAME}}, and {{DDGS_EXECUTABLE_PATH}} exactly."
+  if [[ $stage_status -ne 0 ]]; then
+    fatal_phase "$phase" "Failed to stage render helper into $stage_dir." "Check source/destination permissions and retry."
   fi
 
   set +e
-  temp_path="$(mktemp "$RESOLVED_SKILL_PATH/.SKILL.md.tmp.XXXXXX")"
-  mktemp_status=$?
+  cp "$source_template" "$staged_template"
+  stage_status=$?
   set -e
 
-  if [[ $mktemp_status -ne 0 || -z "$temp_path" ]]; then
-    fatal_phase "$phase" "Failed to create temporary render file under $RESOLVED_SKILL_PATH." "Check destination directory permissions and retry."
+  if [[ $stage_status -ne 0 ]]; then
+    fatal_phase "$phase" "Failed to stage template into $stage_dir." "Check source/destination permissions and retry."
   fi
 
-  set +e
-  printf '%s\n' "$rendered_content" >"$temp_path"
-  write_status=$?
-  set -e
-
-  if [[ $write_status -ne 0 ]]; then
-    rm -f "$temp_path" || true
-    fatal_phase "$phase" "Failed writing rendered content to temporary file: $temp_path" "Check destination directory permissions and available disk space, then rerun."
+  if [[ ! -s "$staged_renderer" ]]; then
+    fatal_phase "$phase" "Staged render helper is empty or missing: $staged_renderer" "Restore render_skill.py and retry."
   fi
 
+  if [[ ! -s "$staged_template" ]]; then
+    fatal_phase "$phase" "Staged template is empty or missing: $staged_template" "Restore SKILL.md.jinja and retry."
+  fi
+
+  log_phase "$phase" "Rendering SKILL.md via target-local interpreter: $venv_python"
+
   set +e
-  mv -f "$temp_path" "$destination_path"
-  rename_status=$?
+  render_output="$(PYTHONDONTWRITEBYTECODE=1 "$venv_python" "$staged_renderer" \
+    --template "$staged_template" \
+    --destination "$destination_path" \
+    --skill-name "$SKILL_NAME" \
+    --server-name "$SERVER_NAME" \
+    --ddgs-executable-path "$RESOLVED_DDGS_PATH" 2>&1)"
+  render_status=$?
   set -e
 
-  if [[ $rename_status -ne 0 ]]; then
-    rm -f "$temp_path" || true
-    fatal_phase "$phase" "Failed to publish rendered SKILL.md to $destination_path." "Check destination path permissions and retry."
+  if [[ $render_status -ne 0 ]]; then
+    if [[ -n "$render_output" ]]; then
+      while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        error_phase "$phase" "$line"
+      done <<< "$render_output"
+    fi
+    fatal_phase "$phase" "Target-local render helper failed with exit code $render_status." "Inspect staged helper output above and rerun after fixing template/runtime issues."
   fi
 
   if [[ ! -f "$destination_path" ]]; then
     fatal_phase "$phase" "Render completed but destination file is missing: $destination_path" "Inspect filesystem behavior and rerun the installer."
   fi
 
+  set +e
+  rm -rf "$stage_dir"
+  cleanup_status=$?
+  set -e
+
+  if [[ $cleanup_status -ne 0 ]]; then
+    fatal_phase "$phase" "Rendered SKILL.md but failed to remove staged helper files from $stage_dir." "Inspect filesystem permissions under the target directory and remove staged files before rerunning."
+  fi
+
+  log_phase "$phase" "Removed staged render helpers from $stage_dir"
   log_phase "$phase" "Rendered skill document: $destination_path"
 }
 
