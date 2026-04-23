@@ -81,12 +81,17 @@ run_installer_with_hooks() {
   local skill_root="$3"
   local skill_name="$4"
   local sync_hook="$5"
+  local python_bootstrap_hook
+  local combined_sync_hook
   shift 5
+
+  python_bootstrap_hook='mkdir -p "$INSTALLER_VENV_PATH/bin" && ln -sf "$(command -v python3)" "$INSTALLER_VENV_PATH/bin/python"'
+  combined_sync_hook="$python_bootstrap_hook && $sync_hook"
 
   env -i \
     HOME="$home_dir" \
     PATH="$fakebin:/usr/bin:/bin" \
-    INSTALLER_UV_SYNC_CMD="$sync_hook" \
+    INSTALLER_UV_SYNC_CMD="$combined_sync_hook" \
     bash "$INSTALLER" --non-interactive --skill-root "$skill_root" --skill-name "$skill_name" "$@"
 }
 
@@ -106,10 +111,18 @@ run_installer_with_hooks() {
     'mkdir -p "$INSTALLER_VENV_PATH/bin" && : > "$INSTALLER_DDGS_PATH" && chmod +x "$INSTALLER_DDGS_PATH"' \
     --server-name "$server_name" 2>&1)"
 
-  ddgs_path="$skill_root/$skill_name/.venv/bin/ddgs"
-  skill_doc="$skill_root/$skill_name/SKILL.md"
+  target_dir="$skill_root/$skill_name"
+  ddgs_path="$target_dir/.venv/bin/ddgs"
+  target_python="$target_dir/.venv/bin/python"
+  target_pyproject="$target_dir/pyproject.toml"
+  render_stage="$target_dir/.template-render-stage"
+  skill_doc="$target_dir/SKILL.md"
+  [[ -d "$target_dir/.venv" ]] || fail "fresh install should retain .venv directory at $target_dir/.venv"
+  [[ -f "$target_pyproject" ]] || fail "fresh install should retain copied pyproject.toml: $target_pyproject"
+  [[ -x "$target_python" ]] || fail "fake sync seam should materialize target-local python: $target_python"
   [[ -x "$ddgs_path" ]] || fail "fresh install should create executable: $ddgs_path"
   [[ -s "$skill_doc" ]] || fail "fresh install should create non-empty SKILL.md: $skill_doc"
+  [[ ! -e "$render_stage" ]] || fail "successful render should remove staged helper directory: $render_stage"
   skill_content="$(<"$skill_doc")"
 
   assert_file_contains "$skill_doc" "$server_name" "rendered SKILL.md should include selected server name"
@@ -127,15 +140,15 @@ run_installer_with_hooks() {
   assert_contains "$skill_content" "## Workflow" "rendered SKILL.md should preserve Workflow anchor"
   assert_contains "$skill_content" "## References" "rendered SKILL.md should preserve References anchor"
   assert_contains "$skill_content" "1. **Availability check first**" "rendered SKILL.md should include MCP-first workflow step"
-  assert_contains "$skill_content" 'Run `mcp_servers`.' "rendered SKILL.md should require mcp_servers as first workflow action"
+  assert_contains "$skill_content" 'Run your MCP server inventory command.' "rendered SKILL.md should require an explicit MCP inventory check as first workflow action"
   fallback_unavailable_marker="If \`$server_name\` is missing, skip to Step 6 (fallback disclosure path)."
   assert_contains "$skill_content" "$fallback_unavailable_marker" "rendered SKILL.md should document unavailable-server fallback path"
   assert_contains "$skill_content" "5. **Rewrite once, then decide**" "rendered SKILL.md should include one-rewrite DDGS decision gate"
   assert_contains "$skill_content" "6. **Known URL and same-URL read path**" "rendered SKILL.md should include known URL handling step"
   assert_contains "$skill_content" 'If task starts with a known URL, begin with `extract_content`.' "rendered SKILL.md should include known URL extract_content rule"
-  assert_contains "$skill_content" 'If `extract_content` fails on that URL, call `fetch_page` on the **same URL** before trying broader search fallback.' "rendered SKILL.md should include same-URL fetch_page fallback rule"
+  assert_contains "$skill_content" 'If `extract_content` fails on that URL, use the runtime page-reader on the **same URL** before trying broader search fallback.' "rendered SKILL.md should include same-URL fallback rule"
   assert_contains "$skill_content" "7. **Fallback disclosure is mandatory**" "rendered SKILL.md should include explicit fallback disclosure step"
-  assert_contains "$skill_content" 'Any time you use `google_search` or `search-the-web` because DDGS was unavailable or weak after one rewrite, state this explicitly in the response and explain why.' "rendered SKILL.md should require explicit fallback disclosure"
+  assert_contains "$skill_content" 'Any time you use non-DDGS tooling because DDGS was unavailable or weak after one rewrite, state this explicitly in the response and explain why.' "rendered SKILL.md should require explicit fallback disclosure"
   assert_contains "$skill_content" "### DDGS tools quick table" "rendered SKILL.md should include DDGS quick table heading"
   assert_contains "$skill_content" "### Shared search parameters and defaults" "rendered SKILL.md should include shared parameter reference heading"
   assert_contains "$skill_content" '### `extract_content` output format reference' "rendered SKILL.md should include extract_content format reference heading"
@@ -170,9 +183,13 @@ run_installer_with_hooks() {
   assert_not_contains "$skill_content" "{{SKILL_NAME}}" "rendered SKILL.md should not retain SKILL_NAME placeholder"
   assert_not_contains "$skill_content" "{{SERVER_NAME}}" "rendered SKILL.md should not retain SERVER_NAME placeholder"
   assert_not_contains "$skill_content" "{{DDGS_EXECUTABLE_PATH}}" "rendered SKILL.md should not retain executable-path placeholder"
+  assert_not_contains "$skill_content" "mcp_servers" "rendered SKILL.md should avoid hardcoded client-specific MCP inventory commands"
+  assert_not_contains "$skill_content" "mcp_discover" "rendered SKILL.md should avoid hardcoded client-specific MCP schema commands"
+  assert_not_contains "$skill_content" "mcp_call" "rendered SKILL.md should avoid hardcoded client-specific MCP invocation commands"
   assert_contains "$output" "[phase:project-sync] Running uv sync --directory" "fresh install project-sync phase"
   assert_contains "$output" "[phase:executable-verification] Verified executable:" "fresh install executable verification"
-  assert_contains "$output" "[phase:template-render] Rendered skill document:" "fresh install template render"
+  assert_contains "$output" "[phase:template-render] Removed staged render helpers from $render_stage" "fresh install should report staged-helper cleanup"
+  assert_contains "$output" "[phase:template-render] Rendered skill document: $skill_doc" "fresh install template render"
   assert_contains "$output" "[phase:install] Final MCP handoff snippet (copy under mcpServers in your MCP config):" "fresh install handoff log"
   assert_contains "$output" '"mcpServers": {' "fresh install handoff block"
   assert_contains "$output" "\"$server_name\": {" "fresh install handoff server"
@@ -357,7 +374,43 @@ run_installer_with_hooks() {
   pass "unreadable template fails cleanly without destination artifact"
 }
 
-# 8) unusual server name renders as escaped JSON string without breaking control flow
+# 8) render-helper runtime failures stay phase-prefixed, suppress handoff/completion, and retain staged diagnostics
+{
+  fakebin="$(make_fake_uv_bin)"
+  home_dir="$(mktemp -d)"
+  skill_root="$(mktemp -d)/skills-root"
+  skill_name="runtime-render-failure"
+
+  set +e
+  output="$(run_installer_with_hooks \
+    "$fakebin" \
+    "$home_dir" \
+    "$skill_root" \
+    "$skill_name" \
+    'mkdir -p "$INSTALLER_VENV_PATH/bin" && : > "$INSTALLER_DDGS_PATH" && chmod +x "$INSTALLER_DDGS_PATH" && rm -f "$INSTALLER_VENV_PATH/bin/python" && printf "#!/usr/bin/env bash\necho \"fixture render runtime failure\" >&2\nexit 97\n" > "$INSTALLER_VENV_PATH/bin/python" && chmod +x "$INSTALLER_VENV_PATH/bin/python"' 2>&1)"
+  status=$?
+  set -e
+
+  render_stage="$skill_root/$skill_name/.template-render-stage"
+  staged_renderer="$render_stage/render_skill.py"
+  staged_template="$render_stage/SKILL.md.jinja"
+
+  [[ $status -ne 0 ]] || fail "render-helper runtime failure should exit non-zero"
+  assert_contains "$output" "[phase:template-render] Rendering SKILL.md via target-local interpreter:" "runtime failure should reach template-render execution phase"
+  assert_contains "$output" "[phase:template-render] ERROR: fixture render runtime failure" "runtime failure should surface helper stderr with template-render prefix"
+  assert_contains "$output" "[phase:template-render] ERROR: Target-local render helper failed with exit code 97." "runtime failure should report renderer exit code"
+  assert_contains "$output" "[phase:template-render] NEXT: Inspect staged helper output above and rerun after fixing template/runtime issues." "runtime failure should provide template-render next action"
+  assert_not_contains "$output" '"mcpServers": {' "runtime failure should suppress MCP handoff snippet"
+  assert_not_contains "$output" "[phase:install] S04 install complete. Local ddgs environment is ready." "runtime failure should suppress completion line"
+  assert_not_contains "$output" "Skill root [" "runtime failure should remain prompt-free in non-interactive mode"
+  [[ ! -e "$skill_root/$skill_name/SKILL.md" ]] || fail "runtime failure should not leave final SKILL.md artifact"
+  [[ -d "$render_stage" ]] || fail "runtime failure should retain staged helper directory for diagnostics: $render_stage"
+  [[ -f "$staged_renderer" ]] || fail "runtime failure should retain staged render helper for diagnostics: $staged_renderer"
+  [[ -f "$staged_template" ]] || fail "runtime failure should retain staged template for diagnostics: $staged_template"
+  pass "render-helper runtime failures remain phase-prefixed and preserve staged diagnostics"
+}
+
+# 9) unusual server name renders as escaped JSON string without breaking control flow
 {
   fakebin="$(make_fake_uv_bin)"
   home_dir="$(mktemp -d)"

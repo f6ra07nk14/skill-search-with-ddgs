@@ -76,12 +76,17 @@ run_installer_with_hooks() {
   local skill_root="$3"
   local skill_name="$4"
   local sync_hook="$5"
+  local python_bootstrap_hook
+  local combined_sync_hook
   shift 5
+
+  python_bootstrap_hook='mkdir -p "$INSTALLER_VENV_PATH/bin" && ln -sf "$(command -v python3)" "$INSTALLER_VENV_PATH/bin/python"'
+  combined_sync_hook="$python_bootstrap_hook && $sync_hook"
 
   env -i \
     HOME="$home_dir" \
     PATH="$fakebin:/usr/bin:/bin" \
-    INSTALLER_UV_SYNC_CMD="$sync_hook" \
+    INSTALLER_UV_SYNC_CMD="$combined_sync_hook" \
     bash "$INSTALLER" --non-interactive --skill-root "$skill_root" --skill-name "$skill_name" "$@"
 }
 
@@ -103,15 +108,24 @@ run_installer_with_hooks() {
   target_pyproject="$target_dir/pyproject.toml"
   target_lock="$target_dir/uv.lock"
   ddgs_path="$target_dir/.venv/bin/ddgs"
+  target_python="$target_dir/.venv/bin/python"
+  render_stage="$target_dir/.template-render-stage"
+  rendered_skill_doc="$target_dir/SKILL.md"
 
   [[ -f "$target_pyproject" ]] || fail "metadata-copy should place pyproject.toml in target directory"
   [[ -f "$target_lock" ]] || fail "project-sync should retain target uv.lock for diagnostics"
+  [[ -d "$target_dir/.venv" ]] || fail "project-sync success should retain target .venv directory"
+  [[ -x "$target_python" ]] || fail "project-sync sync-hook seam should materialize target-local python: $target_python"
   [[ -x "$ddgs_path" ]] || fail "project-sync success should produce executable handoff path: $ddgs_path"
+  [[ -f "$rendered_skill_doc" ]] || fail "successful install should render SKILL.md in target directory"
+  [[ ! -e "$render_stage" ]] || fail "successful render should remove staged helper directory: $render_stage"
   cmp -s "$SOURCE_PYPROJECT" "$target_pyproject" || fail "copied target pyproject.toml should match source manifest"
   assert_contains "$output" "[phase:metadata-copy] Copying project metadata into $target_dir" "metadata-copy phase start"
   assert_contains "$output" "[phase:metadata-copy] Copied required metadata: $target_pyproject" "metadata-copy copied pyproject"
   assert_contains "$output" "[phase:metadata-copy] Metadata copy complete; environment provisioning may proceed." "metadata-copy completion"
   assert_contains "$output" "[phase:project-sync] Retained target lockfile: $target_lock" "project-sync should report retained lockfile"
+  assert_contains "$output" "[phase:template-render] Removed staged render helpers from $render_stage" "successful render should log staged-helper cleanup"
+  assert_contains "$output" "[phase:template-render] Rendered skill document: $rendered_skill_doc" "successful render should report final SKILL.md path"
   assert_contains "$output" "\"command\": \"$ddgs_path\"" "handoff snippet should keep stable ddgs command path"
   assert_contains "$output" "[phase:install] S04 install complete. Local ddgs environment is ready." "success path should emit completion line"
   assert_occurrence_count "$output" '"mcpServers": {' 1 "success path should emit exactly one MCP handoff snippet"
