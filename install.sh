@@ -420,6 +420,85 @@ create_skill_directory() {
   fi
 }
 
+copy_project_metadata() {
+  local phase="metadata-copy"
+  local source_pyproject="$INSTALLER_DIR/pyproject.toml"
+  local source_lock="$INSTALLER_DIR/uv.lock"
+  local target_pyproject="$RESOLVED_SKILL_PATH/pyproject.toml"
+  local target_lock="$RESOLVED_SKILL_PATH/uv.lock"
+  local copy_status
+
+  if [[ -z "$RESOLVED_SKILL_PATH" ]]; then
+    fatal_phase "$phase" "Resolved skill path is empty; refusing metadata copy." "Resolve installer paths before provisioning."
+  fi
+
+  log_phase "$phase" "Copying project metadata into $RESOLVED_SKILL_PATH"
+
+  if [[ ! -e "$source_pyproject" ]]; then
+    fatal_phase "$phase" "Required metadata file is missing: $source_pyproject" "Restore repo-root pyproject.toml and rerun."
+  fi
+
+  if [[ ! -f "$source_pyproject" ]]; then
+    fatal_phase "$phase" "Required metadata path is not a regular file: $source_pyproject" "Replace it with a readable pyproject.toml file and rerun."
+  fi
+
+  if [[ ! -r "$source_pyproject" ]]; then
+    fatal_phase "$phase" "Required metadata file is not readable: $source_pyproject" "Grant read permissions on pyproject.toml and rerun."
+  fi
+
+  if [[ ! -s "$source_pyproject" ]]; then
+    fatal_phase "$phase" "Required metadata file is empty: $source_pyproject" "Populate pyproject.toml with a valid dependency manifest and rerun."
+  fi
+
+  set +e
+  cp "$source_pyproject" "$target_pyproject"
+  copy_status=$?
+  set -e
+
+  if [[ $copy_status -ne 0 ]]; then
+    fatal_phase "$phase" "Failed to copy '$source_pyproject' to '$target_pyproject' (exit $copy_status)." "Check destination filesystem permissions and rerun."
+  fi
+
+  if [[ ! -f "$target_pyproject" ]]; then
+    fatal_phase "$phase" "Metadata copy reported success but target file is missing: $target_pyproject" "Inspect filesystem behavior and rerun."
+  fi
+
+  if [[ ! -s "$target_pyproject" ]]; then
+    fatal_phase "$phase" "Copied metadata file is empty at target: $target_pyproject" "Inspect source metadata and filesystem behavior, then rerun."
+  fi
+
+  log_phase "$phase" "Copied required metadata: $target_pyproject"
+
+  if [[ -e "$source_lock" ]]; then
+    if [[ ! -f "$source_lock" ]]; then
+      fatal_phase "$phase" "Optional lockfile path exists but is not a regular file: $source_lock" "Replace it with a readable uv.lock file or remove it before rerunning."
+    fi
+
+    if [[ ! -r "$source_lock" ]]; then
+      fatal_phase "$phase" "Optional lockfile is not readable: $source_lock" "Grant read permissions on uv.lock or remove it before rerunning."
+    fi
+
+    set +e
+    cp "$source_lock" "$target_lock"
+    copy_status=$?
+    set -e
+
+    if [[ $copy_status -ne 0 ]]; then
+      fatal_phase "$phase" "Failed to copy '$source_lock' to '$target_lock' (exit $copy_status)." "Check destination filesystem permissions and rerun."
+    fi
+
+    if [[ ! -f "$target_lock" ]]; then
+      fatal_phase "$phase" "Metadata copy reported success but target file is missing: $target_lock" "Inspect filesystem behavior and rerun."
+    fi
+
+    log_phase "$phase" "Copied optional lockfile: $target_lock"
+  else
+    log_phase "$phase" "Optional lockfile not found at $source_lock; skipping lockfile copy."
+  fi
+
+  log_phase "$phase" "Metadata copy complete; environment provisioning may proceed."
+}
+
 run_uv_venv() {
   local venv_path="$1"
 
@@ -648,6 +727,7 @@ provision_skill_environment() {
   resolve_install_paths
   validate_destination_paths
   create_skill_directory
+  copy_project_metadata
   create_local_venv
   install_ddgs_package
   verify_ddgs_executable
