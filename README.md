@@ -82,15 +82,16 @@ Authoritative files:
 
 - `install.sh`
 - `SKILL.md.jinja`
-- `tests/test_readme_tutorial.sh`
-- `tests/test_install_preflight.sh`
-- `tests/test_install_environment.sh`
+- `scripts/ensure_bats.sh`
+- `tests/test_helper.bash`
+- `tests/test_install_preflight.bats`
+- `tests/test_install_project_sync.bats`
+- `tests/test_install_environment.bats`
 
 Verification commands:
 
 ```bash
 bash -n install.sh
-bash tests/test_readme_tutorial.sh
-bash tests/test_install_preflight.sh
-bash tests/test_install_environment.sh
+bash scripts/ensure_bats.sh
+PATH="$PWD/.tools/bats/bin:$PATH" bats tests
 ```
