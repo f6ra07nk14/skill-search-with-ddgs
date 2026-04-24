@@ -222,6 +222,7 @@ Thumbs.db
 .env.*
 !.env.example
 node_modules/
+.tools/bats/
 .next/
 *.pyc
 .venv/
