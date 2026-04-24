@@ -200,6 +200,7 @@ run_installer_with_sync_hook() {
   local sync_hook="$5"
   local python_bootstrap_hook
   local combined_sync_hook
+  shift 5
 
   if [[ -z "$sync_hook" ]]; then
     fail_test "sync hook must not be empty"
@@ -214,7 +215,8 @@ run_installer_with_sync_hook() {
     -- \
     --non-interactive \
     --skill-root "$skill_root" \
-    --skill-name "$skill_name"
+    --skill-name "$skill_name" \
+    "$@"
 }
 
 assert_no_mutation() {
