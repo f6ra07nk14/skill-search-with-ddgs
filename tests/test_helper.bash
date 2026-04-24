@@ -176,6 +176,47 @@ assert_occurrence_count() {
   [[ "$actual_count" == "$expected_count" ]] || fail_test "$context (expected $expected_count, got $actual_count for: $needle)"
 }
 
+assert_line_order() {
+  local haystack="$1"
+  local first="$2"
+  local second="$3"
+  local context="$4"
+  local first_line
+  local second_line
+
+  first_line=$(grep -nF -- "$first" <<<"$haystack" | head -n1 | cut -d: -f1)
+  second_line=$(grep -nF -- "$second" <<<"$haystack" | head -n1 | cut -d: -f1)
+
+  [[ -n "$first_line" ]] || fail_test "$context (missing first marker: $first)"
+  [[ -n "$second_line" ]] || fail_test "$context (missing second marker: $second)"
+  (( first_line < second_line )) || fail_test "$context (expected '$first' before '$second')"
+}
+
+run_installer_with_sync_hook() {
+  local fakebin="$1"
+  local home_dir="$2"
+  local skill_root="$3"
+  local skill_name="$4"
+  local sync_hook="$5"
+  local python_bootstrap_hook
+  local combined_sync_hook
+
+  if [[ -z "$sync_hook" ]]; then
+    fail_test "sync hook must not be empty"
+    return 1
+  fi
+
+  python_bootstrap_hook='mkdir -p "$INSTALLER_VENV_PATH/bin" && ln -sf "$(command -v python3)" "$INSTALLER_VENV_PATH/bin/python"'
+  combined_sync_hook="$python_bootstrap_hook && $sync_hook"
+
+  run_installer_env "$fakebin" "$home_dir" \
+    "INSTALLER_UV_SYNC_CMD=$combined_sync_hook" \
+    -- \
+    --non-interactive \
+    --skill-root "$skill_root" \
+    --skill-name "$skill_name"
+}
+
 assert_no_mutation() {
   local root="$1"
   local skill_name="$2"
