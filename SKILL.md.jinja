@@ -1,33 +1,13 @@
 ---
 name: {{SKILL_NAME}}
-description: Use this skill when a task requires current information via web search, news search, or reading a known external URL; prefer {{SERVER_NAME}} before fallback search tools.
+description: Use when a task needs current information from the web, recent news, or content from a known external URL that is not available in the local codebase or model memory.
 ---
 
 # {{SKILL_NAME}}
 
-## When to Use
+## Overview
 
-Use this skill when the task needs up-to-date information that is not guaranteed to exist in the local codebase or model memory, including:
-
-- current events or recent news
-- general web search
-- reading a specific known URL
-- validating current-information claims with cited sources
-
-## Required Sequence
-
-Always follow this order:
-
-1. Check the runtime MCP server inventory and confirm whether `{{SERVER_NAME}}` is available.
-2. If `{{SERVER_NAME}}` is available, inspect its exposed tool surface before the first invocation when that surface is not already confirmed in-session.
-3. Choose the appropriate `{{SERVER_NAME}}` tool for the task:
-   - `extract_content` for a known URL or a selected source URL
-   - `search_news` for news-specific or time-sensitive queries
-   - `search_text` for general web search
-4. If the task starts from a known URL, or `extract_content` fails for that URL, use a same-URL page-reading fallback before broader search.
-5. If `{{SERVER_NAME}}` is unavailable, fall back to alternate web search/read tooling and explicitly state that fallback was used.
-
-## Installed Executable
+This skill keeps current-information work focused on `{{SERVER_NAME}}` first, then makes fallback usage and source disclosure explicit when runtime availability or result quality requires another search/read path.
 
 The installer provisions this local executable path:
 
@@ -35,154 +15,31 @@ The installer provisions this local executable path:
 {{DDGS_EXECUTABLE_PATH}}
 ```
 
-Use this path when validating the installed runtime environment or documenting concrete local behavior.
+Use that path for local runtime validation or install documentation only. Keep the rendered skill single-file, and do not expand it with local config dumps or secrets.
 
-## Response Requirements
+## When to Use
 
-In the final answer:
+Use this skill when:
+- a task needs time-sensitive or recent information
+- a task needs general web search beyond the local codebase
+- a task starts from a known external URL and needs extracted page content
+- a task must support current-information claims with cited sources
 
-- state the search query or queries used
-- cite the main sources or URLs used
-- distinguish between search-result summaries and extracted page content when both are used
-- state clearly if fallback tooling was required and why
-
-## Forbidden
-
-Never:
-
-- assume `{{SERVER_NAME}}` exists without checking available MCP servers
-- silently fall back to another search tool
-- present current web facts from memory without searching
+Do not use this skill when:
+- the answer is already available in the local repository or stable product docs
+- the task is purely local editing with no need for current web verification
 
 ## Workflow
 
-Use this workflow whenever current web information is required.
+1. Check the runtime MCP server inventory and confirm whether `{{SERVER_NAME}}` is available.
+2. If `{{SERVER_NAME}}` is available and its tool surface has not been confirmed in-session, inspect the exposed tools before the first invocation.
+3. Choose the appropriate `{{SERVER_NAME}}` tool: `extract_content` for a known URL or selected source URL, `search_news` for time-sensitive/news work, and `search_text` for broad search.
+4. If the task starts from a known URL, begin with `extract_content`; if that fails, try the same URL with the runtime page reader before broader fallback. If search results are weak, rewrite the query once, then switch to a disclosed fallback only if results are still weak.
+5. In the final response, state the queries used, cite the sources used, distinguish extracted page content from search summaries when both appear, and state clearly if fallback tooling was required.
 
-1. **Availability check first**
-   - Run your MCP server inventory command.
-   - If `{{SERVER_NAME}}` is missing, skip to Step 6 (fallback disclosure path).
+## Common Mistakes
 
-2. **Confirm tool surface**
-   - If `{{SERVER_NAME}}` is present and this session has not confirmed its tools yet, inspect the server's tool schemas before first use.
-
-3. **Choose the initial DDGS tool**
-   - Known URL, or you already selected a source URL and need page content: `extract_content`.
-   - News/time-sensitive query: `search_news`.
-   - Broad/general query: `search_text`.
-
-4. **Evaluate DDGS result quality**
-   - Treat DDGS results as weak when either condition is true:
-     - no clearly relevant hits, or
-     - the top 3 hits are mostly off-topic, aggregator spam, or low-trust sources.
-
-5. **Rewrite once, then decide**
-   - If results are weak, rewrite the query **once** and retry with the same DDGS search tool.
-   - If still weak after that single rewrite:
-     - for search tasks, switch from `search_news` to `search_text` when appropriate, or fallback to another trusted search provider;
-     - if fallback search returns a usable source and you need page content, read that source URL with your runtime page-extraction tool.
-
-6. **Known URL and same-URL read path**
-   - If task starts with a known URL, begin with `extract_content`.
-   - If `extract_content` fails on that URL, use the runtime page-reader on the **same URL** before trying broader search fallback.
-
-7. **Fallback disclosure is mandatory**
-   - Any time you use non-DDGS tooling because DDGS was unavailable or weak after one rewrite, state this explicitly in the response and explain why.
-
-## References
-
-### MCP server config snippet
-
-Add this under `mcpServers` in your MCP configuration:
-
-```json
-{
-  "mcpServers": {
-    "{{SERVER_NAME}}": {
-      "command": "{{DDGS_EXECUTABLE_PATH}}",
-      "args": ["mcp"]
-    }
-  }
-}
-```
-
-### DDGS tools quick table
-
-<table>
-  <thead>
-    <tr><th>Tool</th><th>Use when</th><th>Required args</th><th>Key optional args</th><th>Returns</th></tr>
-  </thead>
-  <tbody>
-    <tr><td><code>search_text</code></td><td>General web search</td><td><code>query</code></td><td><code>region</code>, <code>safesearch</code>, <code>timelimit</code>, <code>max_results</code>, <code>page</code>, <code>backend</code></td><td>Results with <code>title</code>, <code>href</code>, <code>body</code></td></tr>
-    <tr><td><code>search_news</code></td><td>News and time-sensitive updates</td><td><code>query</code></td><td><code>region</code>, <code>safesearch</code>, <code>timelimit</code>, <code>max_results</code>, <code>page</code>, <code>backend</code></td><td>News items with <code>title</code>, <code>url</code>, <code>source</code>, <code>date</code></td></tr>
-    <tr><td><code>extract_content</code></td><td>Read a known URL (or selected source URL)</td><td><code>url</code></td><td><code>fmt</code></td><td>Extracted content payload keyed by URL</td></tr>
-  </tbody>
-</table>
-
-### Shared search parameters and defaults
-
-<table>
-  <thead>
-    <tr><th>Parameter</th><th>Applies to</th><th>Default</th><th>Notes</th></tr>
-  </thead>
-  <tbody>
-    <tr><td><code>query</code></td><td><code>search_text</code>, <code>search_news</code></td><td><em>required</em></td><td>Make first query specific; rewrite once only when weak.</td></tr>
-    <tr><td><code>region</code></td><td><code>search_text</code>, <code>search_news</code></td><td><code>us-en</code></td><td>Use locale-appropriate region codes.</td></tr>
-    <tr><td><code>safesearch</code></td><td><code>search_text</code>, <code>search_news</code></td><td><code>moderate</code></td><td>Typical values: <code>on</code>, <code>moderate</code>, <code>off</code>.</td></tr>
-    <tr><td><code>timelimit</code></td><td><code>search_text</code>, <code>search_news</code></td><td><code>null</code></td><td>Use <code>d</code>, <code>w</code>, <code>m</code>, <code>y</code> for recency filters.</td></tr>
-    <tr><td><code>max_results</code></td><td><code>search_text</code>, <code>search_news</code></td><td><code>10</code></td><td>Increase only when relevance is still high.</td></tr>
-    <tr><td><code>page</code></td><td><code>search_text</code>, <code>search_news</code></td><td><code>1</code></td><td>Prefer query refinement before deep paging.</td></tr>
-    <tr><td><code>backend</code></td><td><code>search_text</code>, <code>search_news</code></td><td><code>auto</code></td><td>Keep <code>auto</code> unless a backend-specific issue requires override.</td></tr>
-  </tbody>
-</table>
-
-### `extract_content` output format reference
-
-<table>
-  <thead>
-    <tr><th><code>fmt</code> value</th><th>Meaning</th><th>Best use</th></tr>
-  </thead>
-  <tbody>
-    <tr><td><code>text_markdown</code></td><td>Markdown extraction</td><td>Default for most agent reading tasks</td></tr>
-    <tr><td><code>text_plain</code></td><td>Plain text</td><td>Minimal/no-markdown workflows</td></tr>
-    <tr><td><code>text_rich</code></td><td>Rich text output</td><td>Preserve more structure when needed</td></tr>
-    <tr><td><code>text</code></td><td>Raw HTML</td><td>Debugging extraction/parsing mismatches</td></tr>
-    <tr><td><code>content</code></td><td>Raw bytes</td><td>Binary or non-text payload handling</td></tr>
-  </tbody>
-</table>
-
-### Backend support matrix
-
-#### Backend options by DDGS search tool
-
-<table>
-  <thead>
-    <tr><th>Tool</th><th><code>backend</code> supported</th><th>Default</th></tr>
-  </thead>
-  <tbody>
-    <tr><td><code>search_text</code></td><td>Yes</td><td><code>auto</code></td></tr>
-    <tr><td><code>search_news</code></td><td>Yes</td><td><code>auto</code></td></tr>
-    <tr><td><code>extract_content</code></td><td>No</td><td>N/A</td></tr>
-  </tbody>
-</table>
-
-#### Non-backend controls by tool
-
-<table>
-  <thead>
-    <tr><th>Tool</th><th><code>timelimit</code></th><th><code>region</code></th><th><code>safesearch</code></th><th><code>page</code></th><th><code>max_results</code></th></tr>
-  </thead>
-  <tbody>
-    <tr><td><code>search_text</code></td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td></tr>
-    <tr><td><code>search_news</code></td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td></tr>
-    <tr><td><code>extract_content</code></td><td>No</td><td>No</td><td>No</td><td>No</td><td>No</td></tr>
-  </tbody>
-</table>
-
-### Operational tips
-
-- Prefer `search_news` for clearly news-driven prompts ("today", "latest", "breaking"), and set `timelimit: "d"` for same-day recency when supported.
-- Prefer `search_text` when news results become noisy, repetitive, or dominated by aggregators.
-- For known URLs, keep the read path deterministic: `extract_content` first, then a same-URL page-reader fallback on failure.
-- Rewrite weak DDGS queries exactly once; do not loop retries with tiny wording changes.
-- In final responses, explicitly disclose fallback usage and include source URLs.
-- Keep network hygiene explicit in diagnostics: if results are unexpectedly empty, check runtime-level `proxy` settings, SSL verification behavior, and client/tool `timeout` values in the execution environment before assuming no results exist.
+- Presenting current web facts from memory instead of searching first.
+- Assuming `{{SERVER_NAME}}` exists without checking availability or its tool surface.
+- Hiding fallback usage instead of explaining why it was needed and which sources backed the answer.
+- Re-expanding the skill into duplicate sequence/reference sections or HTML tables instead of keeping one clear workflow.
