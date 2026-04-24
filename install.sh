@@ -42,9 +42,10 @@ usage() {
 Usage: $SCRIPT_NAME [options]
 
 Installer entrypoint for the search-with-ddgs skill.
-This S02 scope resolves installer config, runs prerequisite checks,
-creates the target skill directory, copies project metadata,
-runs target-local 'uv sync --directory', and verifies the local ddgs executable.
+Renders a single-file SKILL.md whose frontmatter description stays trigger-only.
+The generated body keeps Overview, When to Use, one Workflow, and Common Mistakes.
+On success, the final mcpServers handoff points at the installed .venv/bin/ddgs path.
+For deeper DDGS details, use runtime tool inspection or current docs instead of inline generated tables.
 
 Options:
   --skill-root <path>      Skill install root (default: $DEFAULT_SKILL_ROOT)
