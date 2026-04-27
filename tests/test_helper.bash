@@ -4,6 +4,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 INSTALLER="$ROOT_DIR/install.sh"
 SOURCE_PYPROJECT="$ROOT_DIR/pyproject.toml"
 SOURCE_LOCK="$ROOT_DIR/uv.lock"
+SOURCE_TEMPLATE="$ROOT_DIR/SKILL.md.jinja"
 
 INSTALLER_UV_SYNC_CMD_DEFAULT='mkdir -p "$INSTALLER_VENV_PATH/bin" && ln -sf "$(command -v python3)" "$INSTALLER_VENV_PATH/bin/python" && : > "$INSTALLER_DDGS_PATH" && chmod +x "$INSTALLER_DDGS_PATH" && : > "$INSTALLER_PROJECT_DIR/uv.lock"'
 
@@ -113,6 +114,31 @@ write_source_lock_fixture() {
 
   printf '%s' "$content" >"$SOURCE_LOCK"
   SOURCE_LOCK_CREATED_BY_TEST=1
+}
+
+init_source_template_fixture() {
+  SOURCE_TEMPLATE_BACKUP=""
+  SOURCE_TEMPLATE_MODE="$(stat -c '%a' "$SOURCE_TEMPLATE" 2>/dev/null || true)"
+}
+
+backup_source_template() {
+  if [[ -n "${SOURCE_TEMPLATE_BACKUP:-}" ]]; then
+    return
+  fi
+
+  SOURCE_TEMPLATE_BACKUP="$TEST_TMP_ROOT/source-template.backup"
+  mv "$SOURCE_TEMPLATE" "$SOURCE_TEMPLATE_BACKUP"
+}
+
+restore_source_template() {
+  if [[ -n "${SOURCE_TEMPLATE_BACKUP:-}" && -e "$SOURCE_TEMPLATE_BACKUP" ]]; then
+    rm -f "$SOURCE_TEMPLATE"
+    mv "$SOURCE_TEMPLATE_BACKUP" "$SOURCE_TEMPLATE"
+  fi
+
+  if [[ -n "${SOURCE_TEMPLATE_MODE:-}" && -e "$SOURCE_TEMPLATE" ]]; then
+    chmod "$SOURCE_TEMPLATE_MODE" "$SOURCE_TEMPLATE"
+  fi
 }
 
 restore_source_metadata_fixtures() {

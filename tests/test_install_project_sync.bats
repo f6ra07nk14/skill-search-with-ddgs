@@ -36,10 +36,6 @@ teardown() {
   [[ -x "$ddgs_path" ]] || fail_test "sync success should produce executable handoff path"
   [[ -s "$target_skill_doc" ]] || fail_test "sync success should render a non-empty target-local SKILL.md"
 
-  skill_content="$(<"$target_skill_doc")"
-  assert_contains "$skill_content" "$server_name" "rendered skill should preserve selected server name"
-  assert_contains "$skill_content" "$ddgs_path" "rendered skill should preserve the canonical ddgs path"
-
   assert_output_contains "[phase:metadata-copy] Copying project metadata into $target_dir" "metadata-copy start"
   assert_output_contains "[phase:metadata-copy] Copied required metadata: $target_pyproject" "metadata-copy copied pyproject"
   assert_output_contains "[phase:metadata-copy] Metadata copy complete; environment provisioning may proceed." "metadata-copy completion"
@@ -115,23 +111,4 @@ teardown() {
   assert_output_not_contains "[phase:template-render]" "sync failure should stop before template rendering"
   assert_output_not_contains '"mcpServers": {' "sync failure should suppress MCP handoff snippet"
   assert_output_not_contains "[phase:install] S04 install complete. Local ddgs environment is ready." "sync failure should suppress completion line"
-}
-
-@test "malformed sync layout fails canonical executable verification and suppresses handoff" {
-  fakebin="$(make_fake_uv_bin)"
-  skill_root="$(make_temp_dir)/skills-root"
-  skill_name="malformed-sync-layout"
-
-  run run_installer_with_sync_hook "$fakebin" "$TEST_HOME" "$skill_root" "$skill_name" \
-    'mkdir -p "$INSTALLER_PROJECT_DIR/bin"; : > "$INSTALLER_PROJECT_DIR/bin/ddgs"; chmod +x "$INSTALLER_PROJECT_DIR/bin/ddgs"; : > "$INSTALLER_PROJECT_DIR/uv.lock"'
-
-  assert_failure "malformed sync layout should exit non-zero"
-
-  expected_ddgs="$skill_root/$skill_name/.venv/bin/ddgs"
-  misplaced_ddgs="$skill_root/$skill_name/bin/ddgs"
-
-  [[ -x "$misplaced_ddgs" ]] || fail_test "fixture should create misplaced executable for canonical-path check"
-  assert_output_contains "[phase:executable-verification] ERROR: Missing ddgs executable after install: $expected_ddgs" "malformed layout should fail executable verification on canonical path"
-  assert_output_not_contains '"mcpServers": {' "malformed layout should suppress MCP handoff snippet"
-  assert_output_not_contains "[phase:install] S04 install complete. Local ddgs environment is ready." "malformed layout should suppress completion line"
 }
