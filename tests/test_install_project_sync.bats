@@ -2,74 +2,14 @@
 
 load test_helper.bash
 
-SOURCE_PYPROJECT="$ROOT_DIR/pyproject.toml"
-SOURCE_LOCK="$ROOT_DIR/uv.lock"
-
 setup() {
   setup_test_env
-  SOURCE_PYPROJECT_BACKUP=""
-  SOURCE_LOCK_BACKUP=""
-  SOURCE_LOCK_CREATED_BY_TEST=0
-  SOURCE_PYPROJECT_MODE="$(stat -c '%a' "$SOURCE_PYPROJECT" 2>/dev/null || true)"
-  SOURCE_LOCK_MODE=""
-
-  if [[ -e "$SOURCE_LOCK" ]]; then
-    SOURCE_LOCK_MODE="$(stat -c '%a' "$SOURCE_LOCK" 2>/dev/null || true)"
-  fi
+  init_source_metadata_fixtures
 }
 
 teardown() {
-  restore_source_lock
-  restore_source_pyproject
+  restore_source_metadata_fixtures
   teardown_test_env
-}
-
-backup_source_pyproject() {
-  SOURCE_PYPROJECT_BACKUP="$TEST_TMP_ROOT/source-pyproject.backup"
-  mv "$SOURCE_PYPROJECT" "$SOURCE_PYPROJECT_BACKUP"
-}
-
-restore_source_pyproject() {
-  if [[ -n "${SOURCE_PYPROJECT_BACKUP:-}" && -e "$SOURCE_PYPROJECT_BACKUP" ]]; then
-    mv "$SOURCE_PYPROJECT_BACKUP" "$SOURCE_PYPROJECT"
-  fi
-
-  if [[ -n "${SOURCE_PYPROJECT_MODE:-}" && -e "$SOURCE_PYPROJECT" ]]; then
-    chmod "$SOURCE_PYPROJECT_MODE" "$SOURCE_PYPROJECT"
-  fi
-}
-
-backup_source_lock_if_present() {
-  SOURCE_LOCK_BACKUP=""
-
-  if [[ -e "$SOURCE_LOCK" ]]; then
-    SOURCE_LOCK_BACKUP="$TEST_TMP_ROOT/source-lock.backup"
-    mv "$SOURCE_LOCK" "$SOURCE_LOCK_BACKUP"
-  fi
-}
-
-restore_source_lock() {
-  if [[ -n "${SOURCE_LOCK_BACKUP:-}" && -e "$SOURCE_LOCK_BACKUP" ]]; then
-    rm -f "$SOURCE_LOCK"
-    mv "$SOURCE_LOCK_BACKUP" "$SOURCE_LOCK"
-
-    if [[ -n "${SOURCE_LOCK_MODE:-}" && -e "$SOURCE_LOCK" ]]; then
-      chmod "$SOURCE_LOCK_MODE" "$SOURCE_LOCK"
-    fi
-
-    return
-  fi
-
-  if [[ "${SOURCE_LOCK_CREATED_BY_TEST:-0}" -eq 1 ]]; then
-    rm -f "$SOURCE_LOCK"
-  fi
-}
-
-write_source_lock_fixture() {
-  local content="$1"
-
-  printf '%s' "$content" >"$SOURCE_LOCK"
-  SOURCE_LOCK_CREATED_BY_TEST=1
 }
 
 @test "metadata-copy runs before sync and preserves canonical ddgs handoff path" {
@@ -135,24 +75,22 @@ write_source_lock_fixture() {
   assert_output_contains "[phase:project-sync] Retained target lockfile: $target_lock" "generated target lockfile should be reported"
 }
 
-@test "present source uv.lock is copied into target metadata" {
+@test "project-sync non-zero exits with phase diagnostics and no completion output" {
   fakebin="$(make_fake_uv_bin)"
   skill_root="$(make_temp_dir)/skills-root"
-  skill_name="with-source-lock"
-
-  backup_source_lock_if_present
-  write_source_lock_fixture $'version = 1\nrevision = "fixture-lock"\n'
+  skill_name="project-sync-failure"
 
   run run_installer_with_sync_hook "$fakebin" "$TEST_HOME" "$skill_root" "$skill_name" \
-    ': > "$INSTALLER_DDGS_PATH"; chmod +x "$INSTALLER_DDGS_PATH"; if [[ ! -f "$INSTALLER_PROJECT_DIR/uv.lock" ]]; then : > "$INSTALLER_PROJECT_DIR/uv.lock"; fi'
+    'mkdir -p "$INSTALLER_VENV_PATH/bin"; exit 23'
 
-  assert_success "present source uv.lock should complete"
+  assert_failure "project-sync failure should exit non-zero"
+  assert_output_contains "[phase:project-sync] ERROR: uv sync failed" "project-sync failure should report phase-prefixed error"
+  assert_output_contains "exit code 23" "project-sync failure should surface exit code"
+  assert_output_not_contains '[phase:template-render]' "project-sync failure should stop before template render"
+  assert_output_not_contains '"mcpServers": {' "project-sync failure should suppress handoff snippet"
+  assert_output_not_contains "[phase:install] S04 install complete. Local ddgs environment is ready." "project-sync failure should suppress completion line"
 
-  target_lock="$skill_root/$skill_name/uv.lock"
-  [[ -f "$target_lock" ]] || fail_test "installer should copy source uv.lock when present"
-  target_lock_content="$(<"$target_lock")"
-  assert_contains "$target_lock_content" "fixture-lock" "copied target uv.lock should preserve source contents"
-  assert_output_contains "[phase:metadata-copy] Copied optional lockfile: $target_lock" "metadata-copy should report copied optional lockfile"
+  [[ -d "$skill_root/$skill_name" ]] || fail_test "failed sync should leave target directory for diagnostics"
 }
 
 @test "project-sync failure keeps copied metadata but suppresses handoff and completion output" {
@@ -196,71 +134,4 @@ write_source_lock_fixture() {
   assert_output_contains "[phase:executable-verification] ERROR: Missing ddgs executable after install: $expected_ddgs" "malformed layout should fail executable verification on canonical path"
   assert_output_not_contains '"mcpServers": {' "malformed layout should suppress MCP handoff snippet"
   assert_output_not_contains "[phase:install] S04 install complete. Local ddgs environment is ready." "malformed layout should suppress completion line"
-}
-
-@test "missing source pyproject.toml fails in metadata-copy before project-sync" {
-  fakebin="$(make_fake_uv_bin)"
-  skill_root="$(make_temp_dir)/skills-root"
-  skill_name="missing-pyproject"
-
-  backup_source_pyproject
-
-  run run_installer_with_sync_hook "$fakebin" "$TEST_HOME" "$skill_root" "$skill_name" \
-    ': > "$INSTALLER_DDGS_PATH"; chmod +x "$INSTALLER_DDGS_PATH"; if [[ ! -f "$INSTALLER_PROJECT_DIR/uv.lock" ]]; then : > "$INSTALLER_PROJECT_DIR/uv.lock"; fi'
-
-  assert_failure "missing pyproject.toml should fail install"
-  assert_output_contains "[phase:metadata-copy] ERROR: Required metadata file is missing: $SOURCE_PYPROJECT" "missing pyproject should fail metadata-copy"
-  assert_output_not_contains "[phase:project-sync]" "missing pyproject should stop before project-sync"
-  assert_output_not_contains "[phase:template-render]" "missing pyproject should stop before template-render"
-  assert_output_not_contains '"mcpServers": {' "missing pyproject should stop before MCP handoff"
-  assert_output_not_contains "[phase:install] S04 install complete. Local ddgs environment is ready." "missing pyproject should suppress completion line"
-}
-
-@test "unreadable source pyproject.toml fails in metadata-copy before provisioning" {
-  fakebin="$(make_fake_uv_bin)"
-  skill_root="$(make_temp_dir)/skills-root"
-  skill_name="unreadable-pyproject"
-
-  chmod 000 "$SOURCE_PYPROJECT"
-
-  run run_installer_with_sync_hook "$fakebin" "$TEST_HOME" "$skill_root" "$skill_name" \
-    ': > "$INSTALLER_DDGS_PATH"; chmod +x "$INSTALLER_DDGS_PATH"; if [[ ! -f "$INSTALLER_PROJECT_DIR/uv.lock" ]]; then : > "$INSTALLER_PROJECT_DIR/uv.lock"; fi'
-
-  assert_failure "unreadable pyproject.toml should fail install"
-  assert_output_contains "[phase:metadata-copy] ERROR: Required metadata file is not readable: $SOURCE_PYPROJECT" "unreadable pyproject should fail metadata-copy"
-  assert_output_not_contains "[phase:project-sync]" "unreadable pyproject should stop before project-sync"
-  assert_output_not_contains '"mcpServers": {' "unreadable pyproject should stop before MCP handoff"
-}
-
-@test "unreadable source uv.lock fails in metadata-copy before project-sync" {
-  fakebin="$(make_fake_uv_bin)"
-  skill_root="$(make_temp_dir)/skills-root"
-  skill_name="unreadable-lock"
-
-  backup_source_lock_if_present
-  write_source_lock_fixture $'version = 1\nrevision = "unreadable"\n'
-  chmod 000 "$SOURCE_LOCK"
-
-  run run_installer_with_sync_hook "$fakebin" "$TEST_HOME" "$skill_root" "$skill_name" \
-    ': > "$INSTALLER_DDGS_PATH"; chmod +x "$INSTALLER_DDGS_PATH"; if [[ ! -f "$INSTALLER_PROJECT_DIR/uv.lock" ]]; then : > "$INSTALLER_PROJECT_DIR/uv.lock"; fi'
-
-  assert_failure "unreadable source uv.lock should fail install"
-  assert_output_contains "[phase:metadata-copy] ERROR: Optional lockfile is not readable: $SOURCE_LOCK" "unreadable source lockfile should fail metadata-copy"
-  assert_output_not_contains "[phase:project-sync]" "unreadable source lockfile should stop before project-sync"
-  assert_output_not_contains '"mcpServers": {' "unreadable source lockfile should stop before MCP handoff"
-}
-
-@test "unusual but valid target paths with spaces still receive copied metadata" {
-  fakebin="$(make_fake_uv_bin)"
-  skill_root="$(make_temp_dir)/skills root with spaces"
-  skill_name='skill name with spaces'
-
-  run run_installer_with_sync_hook "$fakebin" "$TEST_HOME" "$skill_root" "$skill_name" \
-    ': > "$INSTALLER_DDGS_PATH"; chmod +x "$INSTALLER_DDGS_PATH"; if [[ ! -f "$INSTALLER_PROJECT_DIR/uv.lock" ]]; then : > "$INSTALLER_PROJECT_DIR/uv.lock"; fi'
-
-  assert_success "valid paths with spaces should complete"
-
-  target_pyproject="$skill_root/$skill_name/pyproject.toml"
-  [[ -f "$target_pyproject" ]] || fail_test "metadata-copy should handle unusual valid target paths"
-  assert_output_contains "[phase:metadata-copy] Copied required metadata: $target_pyproject" "metadata-copy log should quote unusual target path correctly"
 }

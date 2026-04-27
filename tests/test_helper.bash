@@ -2,6 +2,8 @@
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 INSTALLER="$ROOT_DIR/install.sh"
+SOURCE_PYPROJECT="$ROOT_DIR/pyproject.toml"
+SOURCE_LOCK="$ROOT_DIR/uv.lock"
 
 INSTALLER_UV_SYNC_CMD_DEFAULT='mkdir -p "$INSTALLER_VENV_PATH/bin" && ln -sf "$(command -v python3)" "$INSTALLER_VENV_PATH/bin/python" && : > "$INSTALLER_DDGS_PATH" && chmod +x "$INSTALLER_DDGS_PATH" && : > "$INSTALLER_PROJECT_DIR/uv.lock"'
 
@@ -43,6 +45,79 @@ UV
 
 make_empty_bin() {
   mktemp -d "$TEST_TMP_ROOT/bin-empty.XXXXXX"
+}
+
+init_source_metadata_fixtures() {
+  SOURCE_PYPROJECT_BACKUP=""
+  SOURCE_LOCK_BACKUP=""
+  SOURCE_LOCK_CREATED_BY_TEST=0
+  SOURCE_PYPROJECT_MODE="$(stat -c '%a' "$SOURCE_PYPROJECT" 2>/dev/null || true)"
+  SOURCE_LOCK_MODE=""
+
+  if [[ -e "$SOURCE_LOCK" ]]; then
+    SOURCE_LOCK_MODE="$(stat -c '%a' "$SOURCE_LOCK" 2>/dev/null || true)"
+  fi
+}
+
+backup_source_pyproject() {
+  if [[ -n "${SOURCE_PYPROJECT_BACKUP:-}" ]]; then
+    return
+  fi
+
+  SOURCE_PYPROJECT_BACKUP="$TEST_TMP_ROOT/source-pyproject.backup"
+  mv "$SOURCE_PYPROJECT" "$SOURCE_PYPROJECT_BACKUP"
+}
+
+restore_source_pyproject() {
+  if [[ -n "${SOURCE_PYPROJECT_BACKUP:-}" && -e "$SOURCE_PYPROJECT_BACKUP" ]]; then
+    mv "$SOURCE_PYPROJECT_BACKUP" "$SOURCE_PYPROJECT"
+  fi
+
+  if [[ -n "${SOURCE_PYPROJECT_MODE:-}" && -e "$SOURCE_PYPROJECT" ]]; then
+    chmod "$SOURCE_PYPROJECT_MODE" "$SOURCE_PYPROJECT"
+  fi
+}
+
+backup_source_lock_if_present() {
+  if [[ -n "${SOURCE_LOCK_BACKUP:-}" ]]; then
+    return
+  fi
+
+  SOURCE_LOCK_BACKUP=""
+
+  if [[ -e "$SOURCE_LOCK" ]]; then
+    SOURCE_LOCK_BACKUP="$TEST_TMP_ROOT/source-lock.backup"
+    mv "$SOURCE_LOCK" "$SOURCE_LOCK_BACKUP"
+  fi
+}
+
+restore_source_lock() {
+  if [[ -n "${SOURCE_LOCK_BACKUP:-}" && -e "$SOURCE_LOCK_BACKUP" ]]; then
+    rm -f "$SOURCE_LOCK"
+    mv "$SOURCE_LOCK_BACKUP" "$SOURCE_LOCK"
+
+    if [[ -n "${SOURCE_LOCK_MODE:-}" && -e "$SOURCE_LOCK" ]]; then
+      chmod "$SOURCE_LOCK_MODE" "$SOURCE_LOCK"
+    fi
+
+    return
+  fi
+
+  if [[ "${SOURCE_LOCK_CREATED_BY_TEST:-0}" -eq 1 ]]; then
+    rm -f "$SOURCE_LOCK"
+  fi
+}
+
+write_source_lock_fixture() {
+  local content="$1"
+
+  printf '%s' "$content" >"$SOURCE_LOCK"
+  SOURCE_LOCK_CREATED_BY_TEST=1
+}
+
+restore_source_metadata_fixtures() {
+  restore_source_lock
+  restore_source_pyproject
 }
 
 run_installer() {

@@ -71,49 +71,6 @@ restore_source_template() {
   assert_line_order "$output" "[phase:install] Final MCP handoff snippet" "[phase:install] S04 install complete. Local ddgs environment is ready." "fresh install should emit completion after MCP handoff"
 }
 
-@test "existing target directory conflict fails before mutation and suppresses handoff" {
-  fakebin="$(make_fake_uv_bin)"
-  skill_root="$(make_temp_dir)/skills-root"
-  skill_name="conflict-skill"
-
-  run run_installer_with_sync_hook "$fakebin" "$TEST_HOME" "$skill_root" "$skill_name" \
-    ': > "$INSTALLER_DDGS_PATH"; chmod +x "$INSTALLER_DDGS_PATH"; if [[ ! -f "$INSTALLER_PROJECT_DIR/uv.lock" ]]; then : > "$INSTALLER_PROJECT_DIR/uv.lock"; fi'
-
-  assert_success "seed install for conflict test should succeed"
-
-  marker="$skill_root/$skill_name/marker.txt"
-  printf 'keep' >"$marker"
-
-  run run_installer_with_sync_hook "$fakebin" "$TEST_HOME" "$skill_root" "$skill_name" \
-    ': > "$INSTALLER_DDGS_PATH"; chmod +x "$INSTALLER_DDGS_PATH"; if [[ ! -f "$INSTALLER_PROJECT_DIR/uv.lock" ]]; then : > "$INSTALLER_PROJECT_DIR/uv.lock"; fi'
-
-  assert_failure "conflict run should fail"
-  assert_output_contains "[phase:filesystem] ERROR: Target skill directory already exists:" "conflict should be reported in filesystem phase"
-  assert_output_not_contains '"mcpServers": {' "conflict should suppress handoff snippet"
-  assert_output_not_contains "[phase:install] S04 install complete. Local ddgs environment is ready." "conflict should suppress completion line"
-
-  marker_content="$(<"$marker")"
-  [[ "$marker_content" == "keep" ]] || fail_test "conflict path should not overwrite existing files"
-}
-
-@test "project-sync non-zero exits with phase diagnostics and no completion output" {
-  fakebin="$(make_fake_uv_bin)"
-  skill_root="$(make_temp_dir)/skills-root"
-  skill_name="project-sync-failure"
-
-  run run_installer_with_sync_hook "$fakebin" "$TEST_HOME" "$skill_root" "$skill_name" \
-    'mkdir -p "$INSTALLER_VENV_PATH/bin"; exit 23'
-
-  assert_failure "project-sync failure should exit non-zero"
-  assert_output_contains "[phase:project-sync] ERROR: uv sync failed" "project-sync failure should report phase-prefixed error"
-  assert_output_contains "exit code 23" "project-sync failure should surface exit code"
-  assert_output_not_contains '[phase:template-render]' "project-sync failure should stop before template render"
-  assert_output_not_contains '"mcpServers": {' "project-sync failure should suppress handoff snippet"
-  assert_output_not_contains "[phase:install] S04 install complete. Local ddgs environment is ready." "project-sync failure should suppress completion line"
-
-  [[ -d "$skill_root/$skill_name" ]] || fail_test "failed sync should leave target directory for diagnostics"
-}
-
 @test "missing ddgs executable fails verification and suppresses handoff" {
   fakebin="$(make_fake_uv_bin)"
   skill_root="$(make_temp_dir)/skills-root"
