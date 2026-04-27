@@ -49,11 +49,11 @@ The deferred/non-maintained documentation reference surface now lives at `tests/
 - `tests/test_install_environment.bats` is gone; there is no remaining mixed late-phase bucket in the maintained surface.
 - `tests/test_documentation_contract.bats.disabled` is deferred/non-maintained S03 reference work and no longer participates in the maintained `tests/*.bats` entrypoint.
 
-## Known documentation drift to leave for S03
+## S03 documentation alignment status
 
-- `README.md` still tells maintainers to run `PATH="$PWD/.tools/bats/bin:$PATH" bats tests/test_documentation_contract.bats tests/test_install_preflight.bats` and still lists `tests/test_install_environment.bats` as a maintained surface.
-- `.gsd/REQUIREMENTS.md` still records legacy verification commands such as `bash tests/test_install_environment.sh` and `bash tests/test_install_project_sync.sh`, which no longer match the Bats-only maintained surface.
-- This task records the mismatch only. Do not treat README/help wording or requirement-proof text as maintained installer-suite ownership in S02.
+- `README.md` now points maintainers at the repo-local Bats bootstrap, the focused phase-local maintained-suite command, and the full `PATH="$PWD/.tools/bats/bin:$PATH" bats tests` entrypoint in order.
+- `.gsd/REQUIREMENTS.md` is the remaining live proof surface that must cite this same maintained/deferred inventory when R032, R045, R053, and R063 are refreshed.
+- `tests/test_documentation_contract.bats.disabled` stays parked as deferred reference work and remains outside the maintained `tests/*.bats` entrypoint.
 
 ## Scenario ownership map
 

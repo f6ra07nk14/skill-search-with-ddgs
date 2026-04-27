@@ -189,23 +189,31 @@ Paste the emitted object under the top-level `mcpServers` key in your MCP client
 
 ## Maintainer verification
 
-Use these commands to verify the installer and its test suite:
+If you change the installer or template contract, run the maintained repo-local verification sequence in this order:
 
 ```bash
 bash -n install.sh
 bash scripts/ensure_bats.sh
-PATH="$PWD/.tools/bats/bin:$PATH" bats tests/test_documentation_contract.bats tests/test_install_preflight.bats
+PATH="$PWD/.tools/bats/bin:$PATH" bats \
+  tests/test_install_preflight.bats \
+  tests/test_install_filesystem.bats \
+  tests/test_install_metadata_copy.bats \
+  tests/test_install_project_sync.bats \
+  tests/test_install_executable_verification.bats \
+  tests/test_install_template_render.bats \
+  tests/test_install_handoff.bats \
+  tests/test_skill_template_shape.bats
 PATH="$PWD/.tools/bats/bin:$PATH" bats tests
 ```
 
-Key files in this repository:
+Maintained verification surfaces in this repository:
 
-- `install.sh`
-- `render_skill.py`
-- `SKILL.md.jinja`
-- `scripts/ensure_bats.sh`
-- `tests/test_documentation_contract.bats`
+- `tests/install_phase_contract_map.md`
 - `tests/test_install_preflight.bats`
+- `tests/test_install_filesystem.bats`
+- `tests/test_install_metadata_copy.bats`
 - `tests/test_install_project_sync.bats`
-- `tests/test_install_environment.bats`
+- `tests/test_install_executable_verification.bats`
+- `tests/test_install_template_render.bats`
+- `tests/test_install_handoff.bats`
 - `tests/test_skill_template_shape.bats`
