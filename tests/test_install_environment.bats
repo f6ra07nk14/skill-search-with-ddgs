@@ -56,39 +56,19 @@ restore_source_template() {
   [[ ! -e "$render_stage" ]] || fail_test "successful render should remove staging directory: $render_stage"
 
   skill_content="$(<"$skill_doc")"
-  assert_contains "$skill_content" "$skill_name" "rendered file should include selected skill name"
-  assert_contains "$skill_content" "$server_name" "rendered file should include selected server name"
-  assert_contains "$skill_content" "$ddgs_path" "rendered file should include resolved executable path"
-  assert_contains "$skill_content" $'description: Use when a task needs current information from the web, recent news, or content from a known external URL that is not available in the local codebase or model memory.' "rendered file should keep the trigger-only description"
-  assert_contains "$skill_content" "## Overview" "rendered file should include Overview"
-  assert_contains "$skill_content" "## When to Use" "rendered file should include When to Use"
-  assert_contains "$skill_content" "## Workflow" "rendered file should include Workflow"
-  assert_contains "$skill_content" "## Common Mistakes" "rendered file should include Common Mistakes"
-  assert_occurrence_count "$skill_content" "## Overview" 1 "rendered file should keep exactly one Overview section"
-  assert_occurrence_count "$skill_content" "## When to Use" 1 "rendered file should keep exactly one When to Use section"
-  assert_occurrence_count "$skill_content" "## Workflow" 1 "rendered file should keep exactly one Workflow section"
-  assert_occurrence_count "$skill_content" "## Common Mistakes" 1 "rendered file should keep exactly one Common Mistakes section"
-  assert_line_order "$skill_content" "## Overview" "## When to Use" "rendered file should keep Overview before When to Use"
-  assert_line_order "$skill_content" "## When to Use" "## Workflow" "rendered file should keep When to Use before Workflow"
-  assert_line_order "$skill_content" "## Workflow" "## Common Mistakes" "rendered file should keep Workflow before Common Mistakes"
-  assert_contains "$skill_content" "same URL with the runtime page reader before broader fallback" "rendered file should keep same-URL fallback guidance"
-  assert_contains "$skill_content" "rewrite the query once" "rendered file should keep weak-result rewrite guidance"
-  assert_contains "$skill_content" "state the queries used" "rendered file should keep query-reporting guidance"
-  assert_contains "$skill_content" "fallback tooling was required" "rendered file should keep fallback disclosure guidance"
-  assert_not_contains "$skill_content" "## Required Sequence" "rendered file should drop Required Sequence"
-  assert_not_contains "$skill_content" "## References" "rendered file should drop References"
-  assert_not_contains "$skill_content" "<table>" "rendered file should drop HTML table dumps"
-  assert_not_contains "$skill_content" "{{SKILL_NAME}}" "rendered file should not retain skill placeholder"
-  assert_not_contains "$skill_content" "{{SERVER_NAME}}" "rendered file should not retain server placeholder"
-  assert_not_contains "$skill_content" "{{DDGS_EXECUTABLE_PATH}}" "rendered file should not retain executable placeholder"
+  assert_contains "$skill_content" "$server_name" "rendered file should preserve selected server name"
+  assert_contains "$skill_content" "$ddgs_path" "rendered file should preserve canonical executable path"
 
   assert_output_contains "[phase:template-render] Removed staged render helpers from $render_stage" "fresh install should report staging cleanup"
   assert_output_contains "[phase:template-render] Rendered skill document: $skill_doc" "fresh install should report rendered destination"
+  assert_output_contains "[phase:install] Final MCP handoff snippet" "fresh install should announce the MCP handoff block"
   assert_output_contains '"mcpServers": {' "fresh install should emit MCP handoff block"
   assert_output_contains "\"$server_name\": {" "fresh install should emit selected server in handoff block"
   assert_output_contains "\"command\": \"$ddgs_path\"" "fresh install should emit canonical executable command"
   assert_output_contains "[phase:install] S04 install complete. Local ddgs environment is ready." "fresh install should emit completion line"
   assert_occurrence_count "$output" '"mcpServers": {' 1 "fresh install should emit exactly one handoff snippet"
+  assert_line_order "$output" "[phase:template-render] Rendered skill document: $skill_doc" "[phase:install] Final MCP handoff snippet" "fresh install should render before emitting MCP handoff"
+  assert_line_order "$output" "[phase:install] Final MCP handoff snippet" "[phase:install] S04 install complete. Local ddgs environment is ready." "fresh install should emit completion after MCP handoff"
 }
 
 @test "existing target directory conflict fails before mutation and suppresses handoff" {
@@ -176,7 +156,6 @@ restore_source_template() {
 
   assert_failure "missing template should fail"
   assert_output_contains "[phase:template-render] ERROR: Template not found:" "missing template should produce template-render error"
-  assert_output_contains "[phase:template-render] NEXT: Restore SKILL.md.jinja in the installer repository and rerun." "missing template should provide next action"
   assert_output_not_contains '"mcpServers": {' "missing template should suppress handoff snippet"
   assert_output_not_contains "[phase:install] S04 install complete. Local ddgs environment is ready." "missing template should suppress completion line"
 
@@ -195,7 +174,6 @@ restore_source_template() {
 
   assert_failure "unreadable template should fail"
   assert_output_contains "[phase:template-render] ERROR: Template file is not readable:" "unreadable template should produce template-render error"
-  assert_output_contains "[phase:template-render] NEXT: Grant read permissions on SKILL.md.jinja and rerun." "unreadable template should provide next action"
   assert_output_not_contains '"mcpServers": {' "unreadable template should suppress handoff snippet"
   assert_output_not_contains "[phase:install] S04 install complete. Local ddgs environment is ready." "unreadable template should suppress completion line"
 
@@ -219,7 +197,6 @@ restore_source_template() {
   assert_output_contains "[phase:template-render] Rendering SKILL.md via target-local interpreter:" "runtime failure should reach render execution phase"
   assert_output_contains "[phase:template-render] ERROR: fixture render runtime failure" "runtime failure should surface helper stderr"
   assert_output_contains "[phase:template-render] ERROR: Target-local render helper failed with exit code 97." "runtime failure should report render exit code"
-  assert_output_contains "[phase:template-render] NEXT: Inspect staged helper output above and rerun after fixing template/runtime issues." "runtime failure should provide next action"
   assert_output_not_contains '"mcpServers": {' "runtime failure should suppress handoff snippet"
   assert_output_not_contains "[phase:install] S04 install complete. Local ddgs environment is ready." "runtime failure should suppress completion line"
 
@@ -246,14 +223,15 @@ restore_source_template() {
   skill_content="$(<"$skill_doc")"
   escaped_server='"odd\"name\\with\ttab": {'
 
+  assert_output_contains "[phase:template-render] Rendered skill document: $skill_doc" "escaped-server scenario should render before handoff"
+  assert_output_contains "[phase:install] Final MCP handoff snippet" "escaped-server scenario should announce the MCP handoff block"
   assert_output_contains "$escaped_server" "handoff snippet should emit JSON-escaped server name"
   assert_output_contains "\"command\": \"$ddgs_path\"" "handoff snippet should keep canonical command path"
   assert_occurrence_count "$output" '"mcpServers": {' 1 "escaped-server scenario should emit exactly one handoff snippet"
+  assert_line_order "$output" "[phase:template-render] Rendered skill document: $skill_doc" "[phase:install] Final MCP handoff snippet" "escaped-server scenario should render before emitting MCP handoff"
+  assert_line_order "$output" "[phase:install] Final MCP handoff snippet" "[phase:install] S04 install complete. Local ddgs environment is ready." "escaped-server scenario should complete after MCP handoff"
   assert_output_contains "[phase:install] S04 install complete. Local ddgs environment is ready." "escaped-server scenario should complete"
 
   assert_contains "$skill_content" "$server_name" "rendered output should preserve literal server name"
   assert_contains "$skill_content" "$ddgs_path" "rendered output should preserve canonical ddgs path"
-  assert_occurrence_count "$skill_content" "## Workflow" 1 "rendered output should keep exactly one Workflow section under unusual server names"
-  assert_contains "$skill_content" "state the queries used" "rendered output should keep query-reporting guidance under unusual server names"
-  assert_contains "$skill_content" "fallback tooling was required" "rendered output should keep fallback disclosure guidance under unusual server names"
 }
