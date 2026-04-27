@@ -208,7 +208,6 @@ PATH="$PWD/.tools/bats/bin:$PATH" bats tests
 
 Maintained verification surfaces in this repository:
 
-- `tests/install_phase_contract_map.md`
 - `tests/test_install_preflight.bats`
 - `tests/test_install_filesystem.bats`
 - `tests/test_install_metadata_copy.bats`
