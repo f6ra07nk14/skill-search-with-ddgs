@@ -1,45 +1,60 @@
 ---
 name: {{SKILL_NAME}}
-description: Use when a task needs current information from the web, recent news, or content from a known external URL that is not available in the local codebase or model memory.
+description: Use when a task needs current web information, recent news, content from a known external URL, or web-backed verification of a claim not already resolved by the local codebase or stable product docs.
 ---
 
 # {{SKILL_NAME}}
 
 ## Overview
 
-This skill keeps current-information work focused on `{{SERVER_NAME}}` first, then makes fallback usage and source disclosure explicit when runtime availability or result quality requires another search/read path.
-
-The installer provisions this local executable path:
-
-```bash
-{{DDGS_EXECUTABLE_PATH}}
-```
-
-Use that path for local runtime validation or install documentation only. Keep the rendered skill single-file, and do not expand it with local config dumps or secrets.
+This skill keeps current-information and fact-check / grounding work routed through the `{{SERVER_NAME}}` MCP server (DuckDuckGo / `ddgs` backed) first.
+Core rule: validate time-sensitive facts, claims, viewpoints, ideas, or proposed approaches with current web sources via `{{SERVER_NAME}}`, and only treat local installation as the problem after confirming `{{SERVER_NAME}}` is missing from the runtime MCP server inventory.
 
 ## When to Use
 
 Use this skill when:
-- a task needs time-sensitive or recent information
+- a task needs time-sensitive or recent information / news
 - a task needs general web search beyond the local codebase
 - a task starts from a known external URL and needs extracted page content
+- a task needs to fact-check or ground a claim, viewpoint, idea, or proposed approach with web-backed citations
 - a task must support current-information claims with cited sources
 
 Do not use this skill when:
 - the answer is already available in the local repository or stable product docs
 - the task is purely local editing with no need for current web verification
 
+## Quick Reference
+
+| Situation | `{{SERVER_NAME}}` tool |
+|---|---|
+| Known URL → extract page content | `extract_content` |
+| Time-sensitive / news | `search_news` |
+| General / broad web search | `search_text` |
+
 ## Workflow
 
 1. Check the runtime MCP server inventory and confirm whether `{{SERVER_NAME}}` is available.
-2. If `{{SERVER_NAME}}` is available and its tool surface has not been confirmed in-session, inspect the exposed tools before the first invocation.
-3. Choose the appropriate `{{SERVER_NAME}}` tool: `extract_content` for a known URL or selected source URL, `search_news` for time-sensitive/news work, and `search_text` for broad search.
-4. If the task starts from a known URL, begin with `extract_content`; if that fails, try the same URL with the runtime page reader before broader fallback. If search results are weak, rewrite the query once, then switch to a disclosed fallback only if results are still weak.
-5. In the final response, state the queries used, cite the sources used, distinguish extracted page content from search summaries when both appear, and state clearly if fallback tooling was required.
+2. Only if `{{SERVER_NAME}}` is absent from the inventory, ask the user to verify the local install.
+3. If `{{SERVER_NAME}}` is available but its tool surface is unconfirmed in-session, inspect the exposed tools before the first invocation.
+4. Pick the tool from the Quick Reference table above.
+5. For fact-check / grounding work, gather sources via `{{SERVER_NAME}}` search instead of relying on memory or unsupported reasoning.
+6. Fallback ladder (apply only on weak/failed result, one step at a time):
+   - Known URL: `extract_content` → runtime page reader on the same URL → broader fallback.
+   - Search: rewrite the query once → disclosed fallback tool.
+7. In the final response: state queries used, cite sources, distinguish extracted page content from search summaries, and explicitly disclose any fallback tooling.
+
+## Runtime Path Reference
+
+Installer-provisioned local executable (for install/runtime validation only, not for skill logic):
+
+```bash
+{{DDGS_EXECUTABLE_PATH}}
+```
 
 ## Common Mistakes
 
 - Presenting current web facts from memory instead of searching first.
-- Assuming `{{SERVER_NAME}}` exists without checking availability or its tool surface.
-- Hiding fallback usage instead of explaining why it was needed and which sources backed the answer.
+- Assuming `{{SERVER_NAME}}` exists without checking inventory or its tool surface.
+- Asking the user to troubleshoot the local install before confirming `{{SERVER_NAME}}` is absent from the MCP inventory.
+- Hiding fallback usage instead of disclosing why it was needed and which sources backed the answer.
 - Re-expanding the skill into duplicate sequence/reference sections or HTML tables instead of keeping one clear workflow.
